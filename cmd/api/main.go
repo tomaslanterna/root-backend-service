@@ -13,8 +13,23 @@ import (
 )
 
 func main() {
+	// 3. Inicialización de Handlers HTTP (Adaptadores Primarios - Mockeados)
+	authHandler := handlers.NewAuthHandler()
+	userHandler := handlers.NewUserHandler()
+	postHandler := handlers.NewPostHandler()
+	eventHandler := handlers.NewEventHandler()
+	communityHandler := handlers.NewCommunityHandler()
+	crewHandler := handlers.NewCrewHandler()
+
 	// 4. Configuración del Router con Chi
-	router := handlers.NewRouter()
+	router := handlers.NewRouter(handlers.RouterConfig{
+		AuthHandler:      authHandler,
+		UserHandler:      userHandler,
+		PostHandler:      postHandler,
+		EventHandler:     eventHandler,
+		CommunityHandler: communityHandler,
+		CrewHandler:      crewHandler,
+	})
 
 	// 5. Configuración y Arranque del Servidor HTTP
 	port := os.Getenv("PORT")
@@ -35,7 +50,7 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("🚀 Servidor Root Backend iniciado en el puerto %s...", port)
+		log.Printf("🚀 Servidor Root Backend (Mocked) iniciado en el puerto %s...", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("❌ Error crítico al iniciar el servidor: %v", err)
 		}

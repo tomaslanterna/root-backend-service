@@ -8,7 +8,16 @@ import (
 	"github.com/go-chi/cors"
 )
 
-func NewRouter() http.Handler {
+type RouterConfig struct {
+	AuthHandler      *AuthHandler
+	UserHandler      *UserHandler
+	PostHandler      *PostHandler
+	EventHandler     *EventHandler
+	CommunityHandler *CommunityHandler
+	CrewHandler      *CrewHandler
+}
+
+func NewRouter(cfg RouterConfig) http.Handler {
 	r := chi.NewRouter()
 
 	// Middlewares
@@ -28,6 +37,36 @@ func NewRouter() http.Handler {
 	// Health Check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusOK, map[string]string{"status": "OK"})
+	})
+
+	r.Route("/v1", func(r chi.Router) {
+		// 1. Usuarios y Vibe Profile
+		r.Post("/auth/login", cfg.AuthHandler.Login)
+		r.Get("/users/me", cfg.UserHandler.GetMe)
+		r.Put("/users/me", cfg.UserHandler.UpdateMe)
+		r.Get("/users/{id}", cfg.UserHandler.GetUserByID)
+
+		// 2. Feed y Publicaciones
+		r.Get("/posts", cfg.PostHandler.GetPosts)
+		r.Post("/posts", cfg.PostHandler.CreatePost)
+		r.Post("/posts/{id}/like", cfg.PostHandler.LikePost)
+		r.Post("/posts/{id}/comments", cfg.PostHandler.CommentPost)
+
+		// 3. Eventos y Entradas
+		r.Get("/events", cfg.EventHandler.GetEvents)
+		r.Get("/events/{id}", cfg.EventHandler.GetEventByID)
+		r.Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
+		r.Get("/events/{id}/tickets", cfg.EventHandler.GetEventTickets)
+
+		// 4. Comunidades
+		r.Get("/communities", cfg.CommunityHandler.GetCommunities)
+		r.Get("/communities/{id}", cfg.CommunityHandler.GetCommunityByID)
+		r.Post("/communities/{id}/join", cfg.CommunityHandler.JoinCommunity)
+
+		// 5. Crews Matcher (Event Squads)
+		r.Get("/crews/deck", cfg.CrewHandler.GetDeck)
+		r.Post("/crews/swipe", cfg.CrewHandler.Swipe)
+		r.Get("/crews/matches", cfg.CrewHandler.GetMatches)
 	})
 
 	return r
