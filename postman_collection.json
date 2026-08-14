@@ -1,0 +1,334 @@
+{
+  "info": {
+    "name": "Root Backend Service (Mocks)",
+    "description": "Collection for testing the mocked endpoints of the Root Backend Service.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["health"]
+        }
+      }
+    },
+    {
+      "name": "1. Usuarios y Vibe Profile",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/v1/auth/login",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get Current User (Me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/users/me",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Update Current User",
+          "request": {
+            "method": "PUT",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vibeProfile\": {\n    \"favoriteGenres\": [\"Hard Techno\"]\n  }\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/v1/users/me",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "users", "me"]
+            }
+          }
+        },
+        {
+          "name": "Get User By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/users/2",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "users", "2"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Feed y Publicaciones",
+      "item": [
+        {
+          "name": "Get Posts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/posts?filter=all",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "posts"],
+              "query": [{"key": "filter", "value": "all"}]
+            }
+          }
+        },
+        {
+          "name": "Create Post",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Nuevo Post\",\n  \"content\": \"Hola mundo\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/v1/posts",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "posts"]
+            }
+          }
+        },
+        {
+          "name": "Like Post",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"like\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/v1/posts/p1/like",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "posts", "p1", "like"]
+            }
+          }
+        },
+        {
+          "name": "Comment Post",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Excelente data\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/v1/posts/p1/comments",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "posts", "p1", "comments"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Eventos y Entradas",
+      "item": [
+        {
+          "name": "Get Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/events?featured=true",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "events"],
+              "query": [{"key": "featured", "value": "true"}]
+            }
+          }
+        },
+        {
+          "name": "Get Event By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/events/e1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "events", "e1"]
+            }
+          }
+        },
+        {
+          "name": "RSVP Event",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"going\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/v1/events/e1/rsvp",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "events", "e1", "rsvp"]
+            }
+          }
+        },
+        {
+          "name": "Get Event Tickets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/events/e1/tickets",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "events", "e1", "tickets"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Comunidades",
+      "item": [
+        {
+          "name": "Get Communities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/communities",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "communities"]
+            }
+          }
+        },
+        {
+          "name": "Get Community By ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/communities/c1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "communities", "c1"]
+            }
+          }
+        },
+        {
+          "name": "Join Community",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"join\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/v1/communities/c1/join",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "communities", "c1", "join"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Crews Matcher",
+      "item": [
+        {
+          "name": "Get Deck",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/crews/deck",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "crews", "deck"]
+            }
+          }
+        },
+        {
+          "name": "Swipe",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventId\": \"e1\",\n  \"direction\": \"like\",\n  \"lookingForSquad\": true\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8080/v1/crews/swipe",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "crews", "swipe"]
+            }
+          }
+        },
+        {
+          "name": "Get Matches",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/crews/matches",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "crews", "matches"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
