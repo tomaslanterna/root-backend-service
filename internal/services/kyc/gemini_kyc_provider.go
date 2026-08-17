@@ -71,8 +71,8 @@ Responde ESTRICTAMENTE en este formato JSON, sin markdown ni comillas backticks:
 	}
 
 	promptParts := []genai.Part{
-		genai.ImageData("image/jpeg", docFrontBytes),
-		genai.ImageData("image/jpeg", faceBytes),
+		genai.ImageData("jpeg", docFrontBytes),
+		genai.ImageData("jpeg", faceBytes),
 		genai.Text("Analiza las imágenes proporcionadas y devuelve el JSON."),
 	}
 

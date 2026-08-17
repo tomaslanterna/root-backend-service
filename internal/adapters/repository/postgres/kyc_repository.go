@@ -90,7 +90,7 @@ func (r *kycRepository) UpdateSession(ctx context.Context, session *domain.KycSe
 	query := `
 		UPDATE kyc_sessions
 		SET status = $1, doc_front_url = $2, doc_back_url = $3, face_url = $4,
-		    match_score = $5, extracted_data = $6, failure_reason = $7, updated_at = $8
+		    match_score = $5, extracted_data = NULLIF($6, '')::jsonb, failure_reason = $7, updated_at = $8
 		WHERE id = $9
 	`
 	_, err := r.db.ExecContext(ctx, query,

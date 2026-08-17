@@ -28,3 +28,6 @@ go.work.sum
 root-backend-service
 
 main
+
+# IDEs and Editors
+.vscode/
