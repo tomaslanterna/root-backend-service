@@ -15,6 +15,7 @@ type RouterConfig struct {
 	EventHandler     *EventHandler
 	CommunityHandler *CommunityHandler
 	CrewHandler      *CrewHandler
+	KycHandler       *KycHandler
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -67,7 +68,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/crews/deck", cfg.CrewHandler.GetDeck)
 		r.Post("/crews/swipe", cfg.CrewHandler.Swipe)
 		r.Get("/crews/matches", cfg.CrewHandler.GetMatches)
+
+		// 6. KYC (Verificación de Identidad)
+		r.Post("/kyc/sessions", cfg.KycHandler.CreateSession)
+		r.Post("/kyc/sessions/{id}/document", cfg.KycHandler.UploadDocument)
+		r.Post("/kyc/sessions/{id}/face", cfg.KycHandler.UploadFace)
+		r.Post("/kyc/sessions/{id}/submit", cfg.KycHandler.SubmitSession)
+		r.Get("/kyc/sessions/{id}/status", cfg.KycHandler.GetStatus)
 	})
+
+	// Webhooks (Sin Auth en este caso, se autentican con HMAC)
+	r.Post("/v1/webhooks/kyc-provider", cfg.KycHandler.WebhookProvider)
 
 	return r
 }

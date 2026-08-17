@@ -26,3 +26,5 @@ go.work.sum
 
 # Built executable
 root-backend-service
+
+main

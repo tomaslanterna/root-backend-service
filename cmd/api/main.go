@@ -10,16 +10,50 @@ import (
 	"time"
 
 	"root-backend-service/internal/adapters/handlers"
+	"root-backend-service/internal/adapters/repository/postgres"
+	kycservice "root-backend-service/internal/services/kyc"
+	s3service "root-backend-service/internal/services/s3"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Cargar variables de entorno desde .env si existe
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system environment variables")
+	}
+
+	// 1. Conexión a la Base de Datos PostgreSQL
+	dbURL := os.Getenv("DATABASE_URL")
+	db, err := postgres.NewPostgresDB(dbURL)
+	if err != nil {
+		log.Fatalf("❌ Error conectando a PostgreSQL: %v", err)
+	}
+	defer db.Close()
+
+	// 2. Inicializar base de datos
+	kycRepo := postgres.NewKycRepository(db)
+	if err := kycRepo.InitSchema(context.Background()); err != nil {
+		log.Printf("Warning: Could not init DB schema: %v\n", err)
+	}
+
 	// 3. Inicialización de Handlers HTTP (Adaptadores Primarios - Mockeados)
 	authHandler := handlers.NewAuthHandler()
 	userHandler := handlers.NewUserHandler()
+	communityHandler := handlers.NewCommunityHandler()
 	postHandler := handlers.NewPostHandler()
 	eventHandler := handlers.NewEventHandler()
-	communityHandler := handlers.NewCommunityHandler()
 	crewHandler := handlers.NewCrewHandler()
+
+	// Inyectar dependencias para KYC
+	s3Service, err := s3service.NewS3Service(context.Background())
+	if err != nil {
+		log.Printf("Warning: Could not initialize S3 Service: %v\n", err)
+	}
+
+	kycProvider := kycservice.NewGeminiKycProvider(s3Service)
+
+	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo)
 
 	// 4. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
@@ -29,6 +63,7 @@ func main() {
 		EventHandler:     eventHandler,
 		CommunityHandler: communityHandler,
 		CrewHandler:      crewHandler,
+		KycHandler:       kycHandler,
 	})
 
 	// 5. Configuración y Arranque del Servidor HTTP
