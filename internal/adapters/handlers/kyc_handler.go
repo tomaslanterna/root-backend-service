@@ -98,8 +98,16 @@ func (h *KycHandler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		session.DocBackURL = key
 	}
 
+	if err != nil && errBack != nil {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Debes adjuntar al menos frontImage o backImage"})
+		return
+	}
+
 	session.Status = "DOCUMENT_UPLOADED"
-	h.repo.UpdateSession(r.Context(), session)
+	if errUpdate := h.repo.UpdateSession(r.Context(), session); errUpdate != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update session in DB"})
+		return
+	}
 
 	resp := map[string]interface{}{
 		"message": "Document uploaded and saved successfully",
@@ -144,7 +152,10 @@ func (h *KycHandler) UploadFace(w http.ResponseWriter, r *http.Request) {
 
 	session.FaceURL = key
 	session.Status = "FACE_UPLOADED"
-	h.repo.UpdateSession(r.Context(), session)
+	if errUpdate := h.repo.UpdateSession(r.Context(), session); errUpdate != nil {
+		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update session in DB"})
+		return
+	}
 
 	resp := map[string]interface{}{
 		"message": "Face media uploaded successfully",
