@@ -6,11 +6,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type KycHandler struct {
@@ -40,7 +41,7 @@ func (h *KycHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 			respondWithJSON(w, http.StatusConflict, map[string]string{"error": "User already has an approved KYC session"})
 			return
 		}
-		
+
 		// If in progress, return the existing one (or you could return an error)
 		if lastSession.Status == "CREATED" || lastSession.Status == "DOCUMENT_UPLOADED" || lastSession.Status == "FACE_UPLOADED" || lastSession.Status == "PROCESSING" {
 			resp := map[string]interface{}{
@@ -62,8 +63,8 @@ func (h *KycHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		DocumentCountry: "URY",
 	}
 
-	err := h.repo.CreateSession(r.Context(), session)
-	if err != nil {
+	errSession := h.repo.CreateSession(r.Context(), session)
+	if errSession != nil {
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create session in DB"})
 		return
 	}
