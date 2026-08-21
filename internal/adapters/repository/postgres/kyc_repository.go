@@ -106,3 +106,33 @@ func (r *kycRepository) UpdateSession(ctx context.Context, session *domain.KycSe
 	)
 	return err
 }
+
+func (r *kycRepository) GetLastSessionByUserID(ctx context.Context, userID string) (*domain.KycSession, error) {
+	query := `
+		SELECT id, user_id, status, document_type, document_country, 
+		       COALESCE(doc_front_url, ''), COALESCE(doc_back_url, ''), COALESCE(face_url, ''), 
+		       COALESCE(match_score, 0), COALESCE(extracted_data::text, ''), COALESCE(failure_reason, ''), 
+		       created_at, updated_at
+		FROM kyc_sessions
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	row := r.db.QueryRowContext(ctx, query, userID)
+
+	var session domain.KycSession
+	err := row.Scan(
+		&session.ID, &session.UserID, &session.Status, &session.DocumentType, &session.DocumentCountry,
+		&session.DocFrontURL, &session.DocBackURL, &session.FaceURL,
+		&session.MatchScore, &session.ExtractedData, &session.FailureReason,
+		&session.CreatedAt, &session.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("session not found")
+		}
+		return nil, err
+	}
+
+	return &session, nil
+}

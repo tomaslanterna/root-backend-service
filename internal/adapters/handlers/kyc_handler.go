@@ -32,6 +32,28 @@ func (h *KycHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := fmt.Sprintf("kyc_sess_%d", time.Now().UnixNano())
 	userID := "11111111-1111-1111-1111-111111111111" // TODO: MOCK: Obtener del JWT, usando el del Seed
 
+	// 1. Check if user already has an active or approved session
+	lastSession, err := h.repo.GetLastSessionByUserID(r.Context(), userID)
+	if err == nil && lastSession != nil {
+		// If approved, don't allow new sessions
+		if lastSession.Status == "APPROVED" {
+			respondWithJSON(w, http.StatusConflict, map[string]string{"error": "User already has an approved KYC session"})
+			return
+		}
+		
+		// If in progress, return the existing one (or you could return an error)
+		if lastSession.Status == "CREATED" || lastSession.Status == "DOCUMENT_UPLOADED" || lastSession.Status == "FACE_UPLOADED" || lastSession.Status == "PROCESSING" {
+			resp := map[string]interface{}{
+				"sessionId": lastSession.ID,
+				"status":    lastSession.Status,
+				"message":   "Returned existing active session",
+				"expiresAt": lastSession.CreatedAt.Add(24 * time.Hour).Format(time.RFC3339),
+			}
+			respondWithJSON(w, http.StatusOK, resp)
+			return
+		}
+	}
+
 	session := &domain.KycSession{
 		ID:              sessionID,
 		UserID:          userID,
@@ -191,7 +213,11 @@ func (h *KycHandler) SubmitSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session.Status = result.Status
+	if result.MatchScore >= 90 {
+		session.Status = "APPROVED"
+	} else {
+		session.Status = "FAILED"
+	}
 	session.MatchScore = result.MatchScore
 
 	extractedJSON, _ := json.Marshal(result.ExtractedData)
@@ -200,8 +226,8 @@ func (h *KycHandler) SubmitSession(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]interface{}{
 		"message": "Verification completed",
-		"status":  result.Status,
-		"score":   result.MatchScore,
+		"status":  session.Status,
+		"score":   session.MatchScore,
 	}
 	respondWithJSON(w, http.StatusAccepted, resp)
 }
