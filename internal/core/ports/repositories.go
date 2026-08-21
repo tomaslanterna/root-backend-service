@@ -9,5 +9,6 @@ type KycRepository interface {
 	CreateSession(ctx context.Context, session *domain.KycSession) error
 	GetSessionByID(ctx context.Context, id string) (*domain.KycSession, error)
 	UpdateSession(ctx context.Context, session *domain.KycSession) error
+	GetLastSessionByUserID(ctx context.Context, userID string) (*domain.KycSession, error)
 	InitSchema(ctx context.Context) error
 }
