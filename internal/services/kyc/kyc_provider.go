@@ -8,7 +8,7 @@ import (
 // KycProviderService define la interfaz para conectarnos con la IA externa
 // Puede implementarse usando AWS Rekognition, Sumsub, Veriff, etc.
 type KycProviderService interface {
-	AnalyzeIdentity(ctx context.Context, sessionID string, docFrontKey, docBackKey, faceKey string) (*KycResult, error)
+	AnalyzeIdentity(ctx context.Context, sessionID, docFrontKey, docBackKey, faceKey, expectedName, expectedDocID, expectedCountry string) (*KycResult, error)
 }
 
 type KycResult struct {
@@ -18,6 +18,7 @@ type KycResult struct {
 	ExtractedData struct {
 		DocumentNumber string
 		FullName       string
+		Country        string
 	}
 }
 
@@ -27,7 +28,7 @@ func NewMockKycProvider() KycProviderService {
 	return &mockKycProvider{}
 }
 
-func (m *mockKycProvider) AnalyzeIdentity(ctx context.Context, sessionID string, docFrontKey, docBackKey, faceKey string) (*KycResult, error) {
+func (m *mockKycProvider) AnalyzeIdentity(ctx context.Context, sessionID, docFrontKey, docBackKey, faceKey, expectedName, expectedDocID, expectedCountry string) (*KycResult, error) {
 	log.Printf("Iniciando análisis KYC para sesión: %s\n", sessionID)
 	log.Printf("Documentos en S3: %s, %s | Cara en S3: %s\n", docFrontKey, docBackKey, faceKey)
 
@@ -42,9 +43,11 @@ func (m *mockKycProvider) AnalyzeIdentity(ctx context.Context, sessionID string,
 		ExtractedData: struct {
 			DocumentNumber string
 			FullName       string
+			Country        string
 		}{
 			DocumentNumber: "1234567-8",
 			FullName:       "USUARIO DE PRUEBA",
+			Country:        "AR",
 		},
 	}, nil
 }

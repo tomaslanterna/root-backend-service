@@ -18,20 +18,32 @@ type KycHandler struct {
 	s3Service   s3service.S3Service
 	kycProvider kycservice.KycProviderService
 	repo        ports.KycRepository
+	userRepo    ports.UserRepository
 }
 
-func NewKycHandler(s3Service s3service.S3Service, kycProvider kycservice.KycProviderService, repo ports.KycRepository) *KycHandler {
+func NewKycHandler(s3Service s3service.S3Service, kycProvider kycservice.KycProviderService, repo ports.KycRepository, userRepo ports.UserRepository) *KycHandler {
 	return &KycHandler{
 		s3Service:   s3Service,
 		kycProvider: kycProvider,
 		repo:        repo,
+		userRepo:    userRepo,
 	}
+}
+
+type CreateSessionRequest struct {
+	UserID string `json:"userId"`
 }
 
 // CreateSession initializes a new KYC session
 func (h *KycHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
+	var req CreateSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID == "" {
+		// Fallback to a mock/default if not provided, for backwards compatibility
+		req.UserID = "11111111-1111-1111-1111-111111111111" 
+	}
+	
 	sessionID := fmt.Sprintf("kyc_sess_%d", time.Now().UnixNano())
-	userID := "11111111-1111-1111-1111-111111111111" // TODO: MOCK: Obtener del JWT, usando el del Seed
+	userID := req.UserID
 
 	// 1. Check if user already has an active or approved session
 	lastSession, err := h.repo.GetLastSessionByUserID(r.Context(), userID)
@@ -204,7 +216,24 @@ func (h *KycHandler) SubmitSession(w http.ResponseWriter, r *http.Request) {
 	session.Status = "PROCESSING"
 	h.repo.UpdateSession(r.Context(), session)
 
-	result, err := h.kycProvider.AnalyzeIdentity(r.Context(), sessionID, session.DocFrontURL, session.DocBackURL, session.FaceURL)
+	// Fetch expected user data
+	expectedName := ""
+	expectedDocID := ""
+	expectedCountry := ""
+	if h.userRepo != nil {
+		user, err := h.userRepo.GetUserByID(r.Context(), session.UserID)
+		if err == nil && user != nil {
+			expectedName = user.Name
+			if user.DocumentID != nil {
+				expectedDocID = *user.DocumentID
+			}
+			if user.Country != nil {
+				expectedCountry = *user.Country
+			}
+		}
+	}
+
+	result, err := h.kycProvider.AnalyzeIdentity(r.Context(), sessionID, session.DocFrontURL, session.DocBackURL, session.FaceURL, expectedName, expectedDocID, expectedCountry)
 	if err != nil {
 		session.Status = "REJECTED"
 		session.FailureReason = err.Error()
@@ -216,6 +245,10 @@ func (h *KycHandler) SubmitSession(w http.ResponseWriter, r *http.Request) {
 
 	if result.MatchScore >= 90 {
 		session.Status = "APPROVED"
+		// Update user profile!
+		if h.userRepo != nil {
+			h.userRepo.UpdateUserKycStatus(r.Context(), session.UserID, true, result.ExtractedData.Country)
+		}
 	} else {
 		session.Status = "FAILED"
 	}
