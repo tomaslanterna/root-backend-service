@@ -23,7 +23,7 @@ func NewGeminiKycProvider(s3Service s3service.S3Service) KycProviderService {
 	}
 }
 
-func (m *geminiKycProvider) AnalyzeIdentity(ctx context.Context, sessionID string, docFrontKey, docBackKey, faceKey string) (*KycResult, error) {
+func (m *geminiKycProvider) AnalyzeIdentity(ctx context.Context, sessionID, docFrontKey, docBackKey, faceKey, expectedName, expectedDocID, expectedCountry string) (*KycResult, error) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		return nil, fmt.Errorf("GEMINI_API_KEY no configurada")
@@ -50,21 +50,30 @@ func (m *geminiKycProvider) AnalyzeIdentity(ctx context.Context, sessionID strin
 	model := client.GenerativeModel("gemini-2.5-flash")
 	model.SetTemperature(0)
 
-	systemPrompt := `Eres un perito experto en KYC (Know Your Customer) y seguridad documental.
+	systemPrompt := fmt.Sprintf(`Eres un perito experto en KYC (Know Your Customer) y seguridad documental.
 Tu tarea es analizar fotos de un documento de identidad (frente) y una foto selfie del usuario.
 Debes realizar las siguientes comprobaciones:
 1. Extraer los datos exactos del documento (Número de documento y Nombre completo).
-2. Determinar si el rostro del documento coincide con el rostro de la selfie (Score de 0 a 100).
+2. Determinar si el rostro del documento coincide con el rostro de la selfie.
+3. Verificar si los datos leídos en el documento coinciden con los datos registrados por el usuario:
+   - Nombre registrado: %s
+   - Documento registrado: %s
+   - País registrado (ISO 3166-1 alfa-2): %s
+   (Se permite cierta flexibilidad en el nombre si hay segundos nombres omitidos).
+
+El Score (0 a 100) debe reflejar tanto la coincidencia facial como la coincidencia de los datos de texto. Si los datos registrados (incluyendo el país) no coinciden en lo absoluto con los leídos en el documento, el Score debe ser menor a 50.
+Además, identifica el país de emisión del documento y retorna su código ISO 3166-1 alfa-2 (ej. AR, UY, MX, CO, etc) en el campo "Country".
 
 Responde ESTRICTAMENTE en este formato JSON, sin markdown ni comillas backticks:
 {
-  "Status": "APPROVED", // o REJECTED si las caras no coinciden en lo absoluto
+  "Status": "APPROVED", // o REJECTED si las caras o los datos no coinciden
   "MatchScore": 95.5,
   "ExtractedData": {
     "DocumentNumber": "1234567-8",
-    "FullName": "JUAN PEREZ"
+    "FullName": "JUAN PEREZ",
+    "Country": "AR"
   }
-}`
+}`, expectedName, expectedDocID, expectedCountry)
 
 	model.SystemInstruction = &genai.Content{
 		Parts: []genai.Part{genai.Text(systemPrompt)},

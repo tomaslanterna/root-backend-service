@@ -16,6 +16,7 @@ type RouterConfig struct {
 	CommunityHandler *CommunityHandler
 	CrewHandler      *CrewHandler
 	KycHandler       *KycHandler
+	SearchHandler    *SearchHandler
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -41,11 +42,24 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	})
 
 	r.Route("/v1", func(r chi.Router) {
+		// Búsqueda
+		r.With(OptionalAuthMiddleware).Post("/search", cfg.SearchHandler.Search)
+
 		// 1. Usuarios y Vibe Profile
 		r.Post("/auth/login", cfg.AuthHandler.Login)
-		r.Get("/users/me", cfg.UserHandler.GetMe)
-		r.Put("/users/me", cfg.UserHandler.UpdateMe)
-		r.Get("/users/{id}", cfg.UserHandler.GetUserByID)
+		r.Post("/auth/register", cfg.AuthHandler.Register)
+		r.Post("/auth/google", cfg.AuthHandler.GoogleLogin)
+		
+		r.Get("/users/check-username", cfg.UserHandler.CheckUsername)
+		r.With(OptionalAuthMiddleware).Get("/users/{username}", cfg.UserHandler.GetUser)
+
+		r.Group(func(r chi.Router) {
+			r.Use(AuthMiddleware)
+			r.Post("/users/{username}/follow", cfg.UserHandler.FollowUser)
+			r.Delete("/users/{username}/follow", cfg.UserHandler.UnfollowUser)
+			r.Get("/users/me", cfg.UserHandler.GetMe)
+			r.Put("/users/me", cfg.UserHandler.UpdateMe)
+		})
 
 		// 2. Feed y Publicaciones
 		r.Get("/posts", cfg.PostHandler.GetPosts)

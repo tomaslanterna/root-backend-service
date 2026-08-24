@@ -13,6 +13,9 @@ import (
 	"root-backend-service/internal/adapters/repository/postgres"
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
+	"root-backend-service/internal/services/auth"
+	"root-backend-service/internal/services/user"
+	"root-backend-service/internal/services/search"
 
 	"github.com/joho/godotenv"
 )
@@ -36,14 +39,20 @@ func main() {
 	if err := kycRepo.InitSchema(context.Background()); err != nil {
 		log.Printf("Warning: Could not init DB schema: %v\n", err)
 	}
+	userRepo := postgres.NewUserRepository(db)
 
 	// 3. Inicialización de Handlers HTTP (Adaptadores Primarios - Mockeados)
-	authHandler := handlers.NewAuthHandler()
-	userHandler := handlers.NewUserHandler()
+	authService := auth.NewAuthService(userRepo)
+	userService := user.NewUserService(userRepo)
+	searchService := search.NewSearchService(userRepo)
+
+	authHandler := handlers.NewAuthHandler(authService)
+	userHandler := handlers.NewUserHandler(userService)
 	communityHandler := handlers.NewCommunityHandler()
 	postHandler := handlers.NewPostHandler()
 	eventHandler := handlers.NewEventHandler()
 	crewHandler := handlers.NewCrewHandler()
+	searchHandler := handlers.NewSearchHandler(searchService)
 
 	// Inyectar dependencias para KYC
 	s3Service, err := s3service.NewS3Service(context.Background())
@@ -53,7 +62,7 @@ func main() {
 
 	kycProvider := kycservice.NewGeminiKycProvider(s3Service)
 
-	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo)
+	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
 
 	// 4. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
@@ -64,6 +73,7 @@ func main() {
 		CommunityHandler: communityHandler,
 		CrewHandler:      crewHandler,
 		KycHandler:       kycHandler,
+		SearchHandler:    searchHandler,
 	})
 
 	// 5. Configuración y Arranque del Servidor HTTP

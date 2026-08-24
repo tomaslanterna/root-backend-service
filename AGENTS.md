@@ -25,3 +25,15 @@ The application is built with **Go (Golang)**.
   - ALWAYS check the returned `error` from repository methods (e.g., `UpdateSession`) inside HTTP handlers, and return appropriate HTTP 500 status codes instead of failing silently.
 - **Generative AI SDKs:** When using `genai.ImageData` for the Google Gemini Go SDK, pass the bare format name (e.g., `"jpeg"`, `"png"`), not the full MIME type (`"image/jpeg"`).
 - **Testing:** Include tests for any new services or adapters in their respective packages.
+
+## Recent Changes & Known Behaviors
+- **User Onboarding & Auth:**
+  - Added support for updating missing profile data (Google Auth) via `PUT /v1/users/me`.
+  - Added a public endpoint `GET /v1/users/check-username` for real-time alias availability checks.
+  - Usernames are strictly stored and validated in lowercase.
+  - Added `Country` (VARCHAR(2)) to the `users` table schema to store user country.
+- **KYC Enhancements:**
+  - Gemini prompt for KYC explicitly validates that the document's country matches the `expectedCountry` registered by the user. Mismatches force the match score below 50.
+- **Search System:**
+  - `SearchUsers` strictly omits the currently authenticated user (`id != $2`) to prevent self-discovery.
+  - Important: Context user ID is stored under `UserIDKey` (custom type), not the string `"userID"`. Unauthenticated searches use a dummy UUID fallback (`00000000-0000-0000-0000-000000000000`) to prevent PostgreSQL type errors.
