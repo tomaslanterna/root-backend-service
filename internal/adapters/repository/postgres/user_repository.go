@@ -110,13 +110,13 @@ func (r *userRepository) AddFollower(ctx context.Context, followerID, followedID
 	defer tx.Rollback()
 
 	// Update the followed user's followers list
-	_, err = tx.ExecContext(ctx, `UPDATE users SET followers = array_append(followers, $1) WHERE id = $2 AND NOT ($1 = ANY(followers))`, followerID, followedID)
+	_, err = tx.ExecContext(ctx, `UPDATE users SET followers = array_append(COALESCE(followers, '{}'::text[]), $1) WHERE id = $2 AND NOT ($1 = ANY(COALESCE(followers, '{}'::text[])))`, followerID, followedID)
 	if err != nil {
 		return err
 	}
 
 	// Update the follower's following list
-	_, err = tx.ExecContext(ctx, `UPDATE users SET following = array_append(following, $1) WHERE id = $2 AND NOT ($1 = ANY(following))`, followedID, followerID)
+	_, err = tx.ExecContext(ctx, `UPDATE users SET following = array_append(COALESCE(following, '{}'::text[]), $1) WHERE id = $2 AND NOT ($1 = ANY(COALESCE(following, '{}'::text[])))`, followedID, followerID)
 	if err != nil {
 		return err
 	}
@@ -132,13 +132,13 @@ func (r *userRepository) RemoveFollower(ctx context.Context, followerID, followe
 	defer tx.Rollback()
 
 	// Update the followed user's followers list
-	_, err = tx.ExecContext(ctx, `UPDATE users SET followers = array_remove(followers, $1) WHERE id = $2`, followerID, followedID)
+	_, err = tx.ExecContext(ctx, `UPDATE users SET followers = array_remove(COALESCE(followers, '{}'::text[]), $1) WHERE id = $2`, followerID, followedID)
 	if err != nil {
 		return err
 	}
 
 	// Update the follower's following list
-	_, err = tx.ExecContext(ctx, `UPDATE users SET following = array_remove(following, $1) WHERE id = $2`, followedID, followerID)
+	_, err = tx.ExecContext(ctx, `UPDATE users SET following = array_remove(COALESCE(following, '{}'::text[]), $1) WHERE id = $2`, followedID, followerID)
 	if err != nil {
 		return err
 	}
