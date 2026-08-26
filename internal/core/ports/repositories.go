@@ -22,7 +22,28 @@ type KycRepository interface {
 	GetSessionByID(ctx context.Context, id string) (*domain.KycSession, error)
 	UpdateSession(ctx context.Context, session *domain.KycSession) error
 	GetLastSessionByUserID(ctx context.Context, userID string) (*domain.KycSession, error)
-	InitSchema(ctx context.Context) error
+}
+
+type ChatRepository interface {
+	CreateChat(ctx context.Context, chat *domain.Chat) error
+	GetChatByID(ctx context.Context, id string) (*domain.Chat, error)
+	UpdateLastMessage(ctx context.Context, chatID string, lastMessage string) error
+	AddParticipant(ctx context.Context, participant *domain.ChatParticipant) error
+	GetUserChats(ctx context.Context, userID string) ([]domain.Chat, error)
+	GetDirectChatBetweenUsers(ctx context.Context, user1ID, user2ID string) (*domain.Chat, error)
+}
+
+type MessageRepository interface {
+	CreateMessage(ctx context.Context, msg *domain.Message) error
+	GetMessagesByChatID(ctx context.Context, chatID string, afterTimestamp string) ([]domain.Message, error)
+}
+
+type TransferRepository interface {
+	CreateTransfer(ctx context.Context, transfer *domain.Transfer) error
+	GetTransferByID(ctx context.Context, id string) (*domain.Transfer, error)
+	UpdateStatus(ctx context.Context, transferID string, status domain.TransferStatus, ticketURL *string) error
+	UpdateStartDeal(ctx context.Context, transferID, buyerID, chatID string) error
+	GetTransfers(ctx context.Context, status *string) ([]domain.Transfer, error)
 }
 
 type EventRepository interface {
@@ -32,4 +53,3 @@ type EventRepository interface {
 	RSVPEvent(ctx context.Context, userID, eventID, status string) (goingCount int, notGoingCount int, err error)
 	SearchEvents(ctx context.Context, query string) ([]domain.Event, error)
 }
-

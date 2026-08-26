@@ -11,11 +11,12 @@ import (
 
 	"root-backend-service/internal/adapters/handlers"
 	"root-backend-service/internal/adapters/repository/postgres"
+	"root-backend-service/internal/services/auth"
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
-	"root-backend-service/internal/services/auth"
-	eventservice "root-backend-service/internal/services/event"
 	"root-backend-service/internal/services/search"
+
+	coreServices "root-backend-service/internal/core/services"
 	"root-backend-service/internal/services/user"
 
 	"github.com/joho/godotenv"
@@ -35,39 +36,43 @@ func main() {
 	}
 	defer db.Close()
 
-	// 2. Inicializar base de datos
+	// 2. Inicializar repositorios de la base de datos
 	kycRepo := postgres.NewKycRepository(db)
-	if err := kycRepo.InitSchema(context.Background()); err != nil {
-		log.Printf("Warning: Could not init DB schema: %v\n", err)
-	}
 	userRepo := postgres.NewUserRepository(db)
+	chatRepo := postgres.NewChatRepository(db)
+	messageRepo := postgres.NewMessageRepository(db)
+	transferRepo := postgres.NewTransferRepository(db)
 	eventRepo := postgres.NewEventRepository(db)
 
-	// 3. Inicialización de Servicios y Handlers HTTP
+	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo)
 	userService := user.NewUserService(userRepo)
-	eventService := eventservice.NewEventService(eventRepo)
 	searchService := search.NewSearchService(userRepo, eventRepo)
 
-	authHandler := handlers.NewAuthHandler(authService)
-	userHandler := handlers.NewUserHandler(userService)
-	communityHandler := handlers.NewCommunityHandler()
-	postHandler := handlers.NewPostHandler()
-	eventHandler := handlers.NewEventHandler(eventService)
-	crewHandler := handlers.NewCrewHandler()
-	searchHandler := handlers.NewSearchHandler(searchService)
+	chatService := coreServices.NewChatService(chatRepo, messageRepo)
+	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo)
 
 	// Inyectar dependencias para KYC
 	s3Service, err := s3service.NewS3Service(context.Background())
 	if err != nil {
 		log.Printf("Warning: Could not initialize S3 Service: %v\n", err)
 	}
-
 	kycProvider := kycservice.NewGeminiKycProvider(s3Service)
 
+	// 4. Inicialización de Handlers HTTP
+	authHandler := handlers.NewAuthHandler(authService)
+	userHandler := handlers.NewUserHandler(userService)
+	communityHandler := handlers.NewCommunityHandler()
+	postHandler := handlers.NewPostHandler()
+	eventHandler := handlers.NewEventHandler(eventRepo)
+	crewHandler := handlers.NewCrewHandler()
+	searchHandler := handlers.NewSearchHandler(searchService)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
 
-	// 4. Configuración del Router con Chi
+	chatHandler := handlers.NewChatHandler(chatService)
+	transferHandler := handlers.NewTransferHandler(transferService)
+
+	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
 		AuthHandler:      authHandler,
 		UserHandler:      userHandler,
@@ -77,9 +82,11 @@ func main() {
 		CrewHandler:      crewHandler,
 		KycHandler:       kycHandler,
 		SearchHandler:    searchHandler,
+		ChatHandler:      chatHandler,
+		TransferHandler:  transferHandler,
 	})
 
-	// 5. Configuración y Arranque del Servidor HTTP
+	// 6. Configuración y Arranque del Servidor HTTP
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

@@ -22,10 +22,25 @@ type SearchService interface {
 	Search(ctx context.Context, query, searchType, country, currentUserID string) (interface{}, error)
 }
 
+type ChatService interface {
+	GetMessages(ctx context.Context, chatID string, afterTimestamp string, currentUserID string) ([]domain.Message, error)
+	SendMessage(ctx context.Context, chatID, currentUserID, content string, msgType domain.MessageType) (*domain.Message, error)
+	GetUserChats(ctx context.Context, userID string) ([]domain.Chat, error)
+	GetOrCreateDirectChat(ctx context.Context, currentUserID, targetUserID string) (*domain.Chat, error)
+	GetChatByID(ctx context.Context, chatID, currentUserID string) (*domain.Chat, error)
+}
+
+type TransferService interface {
+	CreateTransfer(ctx context.Context, eventID, sellerID string, price float64) (*domain.Transfer, error)
+	GetTransfer(ctx context.Context, transferID, currentUserID string) (*domain.Transfer, error)
+	UpdateTransferStatus(ctx context.Context, transferID, currentUserID string, status domain.TransferStatus, ticketURL *string) error
+	StartDeal(ctx context.Context, transferID, buyerID string) error
+	GetTransfers(ctx context.Context, status *string) ([]domain.Transfer, error)
+}
+
 type EventService interface {
 	GetFeaturedEvents(ctx context.Context, country string) ([]domain.Event, error)
 	GetEvents(ctx context.Context, featuredOnly *bool, country string) ([]domain.Event, error)
 	GetEventByID(ctx context.Context, id string) (*domain.Event, error)
 	RSVPEvent(ctx context.Context, userID, eventID, status string) (goingCount int, notGoingCount int, err error)
 }
-
