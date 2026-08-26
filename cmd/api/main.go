@@ -14,10 +14,11 @@ import (
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
 	"root-backend-service/internal/services/auth"
-	"root-backend-service/internal/services/user"
+	eventservice "root-backend-service/internal/services/event"
 	"root-backend-service/internal/services/search"
 	
 	coreServices "root-backend-service/internal/core/services"
+  "root-backend-service/internal/services/user"
 
 	"github.com/joho/godotenv"
 )

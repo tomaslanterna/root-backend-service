@@ -6,12 +6,14 @@ import (
 )
 
 type searchService struct {
-	userRepo ports.UserRepository
+	userRepo  ports.UserRepository
+	eventRepo ports.EventRepository
 }
 
-func NewSearchService(userRepo ports.UserRepository) ports.SearchService {
+func NewSearchService(userRepo ports.UserRepository, eventRepo ports.EventRepository) ports.SearchService {
 	return &searchService{
-		userRepo: userRepo,
+		userRepo:  userRepo,
+		eventRepo: eventRepo,
 	}
 }
 
@@ -24,7 +26,13 @@ func (s *searchService) Search(ctx context.Context, query, searchType, country, 
 		}
 		return users, nil
 	case "EVENT":
-		// Mock events for now
+		if s.eventRepo != nil {
+			events, err := s.eventRepo.SearchEvents(ctx, query)
+			if err != nil {
+				return nil, err
+			}
+			return events, nil
+		}
 		return []interface{}{}, nil
 	case "POST":
 		// Mock posts for now

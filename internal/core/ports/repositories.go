@@ -44,5 +44,12 @@ type TransferRepository interface {
 	UpdateStatus(ctx context.Context, transferID string, status domain.TransferStatus, ticketURL *string) error
 	UpdateStartDeal(ctx context.Context, transferID, buyerID, chatID string) error
 	GetTransfers(ctx context.Context, status *string) ([]domain.Transfer, error)
+  
+  type EventRepository interface {
+	GetFeaturedEvents(ctx context.Context, country string) ([]domain.Event, error)
+	GetEvents(ctx context.Context, featuredOnly *bool, country string) ([]domain.Event, error)
+	GetEventByID(ctx context.Context, id string) (*domain.Event, error)
+	RSVPEvent(ctx context.Context, userID, eventID, status string) (goingCount int, notGoingCount int, err error)
+	SearchEvents(ctx context.Context, query string) ([]domain.Event, error)
 }
 

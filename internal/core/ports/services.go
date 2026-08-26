@@ -38,3 +38,16 @@ type TransferService interface {
 	GetTransfers(ctx context.Context, status *string) ([]domain.Transfer, error)
 }
 
+type EventService interface {
+	GetFeaturedEvents(ctx context.Context, country string) ([]domain.Event, error)
+	GetEvents(ctx context.Context, featuredOnly *bool, country string) ([]domain.Event, error)
+	GetEventByID(ctx context.Context, id string) (*domain.Event, error)
+	RSVPEvent(ctx context.Context, userID, eventID, status string) (goingCount int, notGoingCount int, err error)
+}
+
+type EventService interface {
+	GetFeaturedEvents(ctx context.Context, country string) ([]domain.Event, error)
+	GetEvents(ctx context.Context, featuredOnly *bool, country string) ([]domain.Event, error)
+	GetEventByID(ctx context.Context, id string) (*domain.Event, error)
+	RSVPEvent(ctx context.Context, userID, eventID, status string) (goingCount int, notGoingCount int, err error)
+}
