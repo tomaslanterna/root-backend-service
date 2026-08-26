@@ -69,6 +69,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		// 3. Eventos y Entradas
 		r.Get("/events", cfg.EventHandler.GetEvents)
+		r.Get("/events/featured", cfg.EventHandler.GetFeaturedEvents)
 		r.Get("/events/{id}", cfg.EventHandler.GetEventByID)
 		r.Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
 		r.Get("/events/{id}/tickets", cfg.EventHandler.GetEventTickets)
