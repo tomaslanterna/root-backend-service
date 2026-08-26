@@ -16,6 +16,8 @@ import (
 	"root-backend-service/internal/services/auth"
 	"root-backend-service/internal/services/user"
 	"root-backend-service/internal/services/search"
+	
+	coreServices "root-backend-service/internal/core/services"
 
 	"github.com/joho/godotenv"
 )
@@ -40,12 +42,26 @@ func main() {
 		log.Printf("Warning: Could not init DB schema: %v\n", err)
 	}
 	userRepo := postgres.NewUserRepository(db)
+	chatRepo := postgres.NewChatRepository(db)
+	messageRepo := postgres.NewMessageRepository(db)
+	transferRepo := postgres.NewTransferRepository(db)
 
-	// 3. Inicialización de Handlers HTTP (Adaptadores Primarios - Mockeados)
+	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo)
 	userService := user.NewUserService(userRepo)
 	searchService := search.NewSearchService(userRepo)
+	
+	chatService := coreServices.NewChatService(chatRepo, messageRepo)
+	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo)
 
+	// Inyectar dependencias para KYC
+	s3Service, err := s3service.NewS3Service(context.Background())
+	if err != nil {
+		log.Printf("Warning: Could not initialize S3 Service: %v\n", err)
+	}
+	kycProvider := kycservice.NewGeminiKycProvider(s3Service)
+
+	// 4. Inicialización de Handlers HTTP
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	communityHandler := handlers.NewCommunityHandler()
@@ -53,18 +69,12 @@ func main() {
 	eventHandler := handlers.NewEventHandler()
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
-
-	// Inyectar dependencias para KYC
-	s3Service, err := s3service.NewS3Service(context.Background())
-	if err != nil {
-		log.Printf("Warning: Could not initialize S3 Service: %v\n", err)
-	}
-
-	kycProvider := kycservice.NewGeminiKycProvider(s3Service)
-
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
+	
+	chatHandler := handlers.NewChatHandler(chatService)
+	transferHandler := handlers.NewTransferHandler(transferService)
 
-	// 4. Configuración del Router con Chi
+	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
 		AuthHandler:      authHandler,
 		UserHandler:      userHandler,
@@ -74,9 +84,11 @@ func main() {
 		CrewHandler:      crewHandler,
 		KycHandler:       kycHandler,
 		SearchHandler:    searchHandler,
+		ChatHandler:      chatHandler,
+		TransferHandler:  transferHandler,
 	})
 
-	// 5. Configuración y Arranque del Servidor HTTP
+	// 6. Configuración y Arranque del Servidor HTTP
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

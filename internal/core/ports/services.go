@@ -21,3 +21,17 @@ type UserService interface {
 type SearchService interface {
 	Search(ctx context.Context, query, searchType, country, currentUserID string) (interface{}, error)
 }
+
+type ChatService interface {
+	GetMessages(ctx context.Context, chatID string, afterTimestamp string, currentUserID string) ([]domain.Message, error)
+	SendMessage(ctx context.Context, chatID, currentUserID, content string, msgType domain.MessageType) (*domain.Message, error)
+}
+
+type TransferService interface {
+	CreateTransfer(ctx context.Context, eventID, sellerID string, price float64) (*domain.Transfer, error)
+	GetTransfer(ctx context.Context, transferID, currentUserID string) (*domain.Transfer, error)
+	UpdateTransferStatus(ctx context.Context, transferID, currentUserID string, status domain.TransferStatus, ticketURL *string) error
+	StartDeal(ctx context.Context, transferID, buyerID string) error
+	GetTransfers(ctx context.Context, status *string) ([]domain.Transfer, error)
+}
+

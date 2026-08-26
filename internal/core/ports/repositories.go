@@ -24,3 +24,24 @@ type KycRepository interface {
 	GetLastSessionByUserID(ctx context.Context, userID string) (*domain.KycSession, error)
 	InitSchema(ctx context.Context) error
 }
+
+type ChatRepository interface {
+	CreateChat(ctx context.Context, chat *domain.Chat) error
+	GetChatByID(ctx context.Context, id string) (*domain.Chat, error)
+	UpdateLastMessage(ctx context.Context, chatID string, lastMessage string) error
+	AddParticipant(ctx context.Context, participant *domain.ChatParticipant) error
+}
+
+type MessageRepository interface {
+	CreateMessage(ctx context.Context, msg *domain.Message) error
+	GetMessagesByChatID(ctx context.Context, chatID string, afterTimestamp string) ([]domain.Message, error)
+}
+
+type TransferRepository interface {
+	CreateTransfer(ctx context.Context, transfer *domain.Transfer) error
+	GetTransferByID(ctx context.Context, id string) (*domain.Transfer, error)
+	UpdateStatus(ctx context.Context, transferID string, status domain.TransferStatus, ticketURL *string) error
+	UpdateStartDeal(ctx context.Context, transferID, buyerID, chatID string) error
+	GetTransfers(ctx context.Context, status *string) ([]domain.Transfer, error)
+}
+
