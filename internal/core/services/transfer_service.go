@@ -112,22 +112,33 @@ func (s *transferService) UpdateTransferStatus(ctx context.Context, transferID, 
 		return err
 	}
 
-	// When ticket is sent, emit a system message in the chat
-	if status == domain.TransferStatusTicketSent {
-		if transfer.ChatID == nil {
-			return errors.New("cannot emit system message: chat_id is nil")
+	// Emitir un mensaje de sistema en el chat basado en el nuevo estado
+	if transfer.ChatID != nil {
+		var content string
+		switch status {
+		case domain.TransferStatusTicketSent:
+			content = "TICKET_SENT"
+		case domain.TransferStatusCompleted:
+			content = "COMPLETED"
+		case domain.TransferStatusDisputed:
+			content = "DISPUTED"
+		case domain.TransferStatusCancelled:
+			content = "CANCELLED"
 		}
-		
-		msg := &domain.Message{
-			ID:        uuid.New().String(),
-			ChatID:    *transfer.ChatID,
-			SenderID:  "system",
-			Content:   "TICKET_SENT",
-			Type:      domain.MessageTypeSystem,
-			Metadata:  []byte(`{"event_id":"` + transfer.EventID + `","status":"ticket_sent"}`),
-			Timestamp: time.Now(),
+
+		if content != "" {
+			msg := &domain.Message{
+				ID:        uuid.New().String(),
+				ChatID:    *transfer.ChatID,
+				SenderID:  "00000000-0000-0000-0000-000000000000",
+				Content:   content,
+				Type:      domain.MessageTypeSystem,
+				Metadata:  []byte(`{"event_id":"` + transfer.EventID + `","status":"` + string(status) + `"}`),
+				Timestamp: time.Now(),
+			}
+			_ = s.messageRepo.CreateMessage(ctx, msg)
+			_ = s.chatRepo.UpdateLastMessage(ctx, *transfer.ChatID, "[Actualización del Trato]")
 		}
-		_ = s.messageRepo.CreateMessage(ctx, msg)
 	}
 
 	return nil
