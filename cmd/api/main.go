@@ -11,14 +11,13 @@ import (
 
 	"root-backend-service/internal/adapters/handlers"
 	"root-backend-service/internal/adapters/repository/postgres"
+	"root-backend-service/internal/services/auth"
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
-	"root-backend-service/internal/services/auth"
-	eventservice "root-backend-service/internal/services/event"
 	"root-backend-service/internal/services/search"
-	
+
 	coreServices "root-backend-service/internal/core/services"
-  "root-backend-service/internal/services/user"
+	"root-backend-service/internal/services/user"
 
 	"github.com/joho/godotenv"
 )
@@ -43,12 +42,13 @@ func main() {
 	chatRepo := postgres.NewChatRepository(db)
 	messageRepo := postgres.NewMessageRepository(db)
 	transferRepo := postgres.NewTransferRepository(db)
+	eventRepo := postgres.NewEventRepository(db)
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo)
 	userService := user.NewUserService(userRepo)
-	searchService := search.NewSearchService(userRepo)
-	
+	searchService := search.NewSearchService(userRepo, eventRepo)
+
 	chatService := coreServices.NewChatService(chatRepo, messageRepo)
 	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo)
 
@@ -64,11 +64,11 @@ func main() {
 	userHandler := handlers.NewUserHandler(userService)
 	communityHandler := handlers.NewCommunityHandler()
 	postHandler := handlers.NewPostHandler()
-	eventHandler := handlers.NewEventHandler()
+	eventHandler := handlers.NewEventHandler(eventRepo)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
-	
+
 	chatHandler := handlers.NewChatHandler(chatService)
 	transferHandler := handlers.NewTransferHandler(transferService)
 
