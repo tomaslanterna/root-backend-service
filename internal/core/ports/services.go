@@ -21,3 +21,11 @@ type UserService interface {
 type SearchService interface {
 	Search(ctx context.Context, query, searchType, country, currentUserID string) (interface{}, error)
 }
+
+type EventService interface {
+	GetFeaturedEvents(ctx context.Context, country string) ([]domain.Event, error)
+	GetEvents(ctx context.Context, featuredOnly *bool, country string) ([]domain.Event, error)
+	GetEventByID(ctx context.Context, id string) (*domain.Event, error)
+	RSVPEvent(ctx context.Context, userID, eventID, status string) (goingCount int, notGoingCount int, err error)
+}
+

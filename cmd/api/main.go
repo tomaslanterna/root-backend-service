@@ -14,8 +14,9 @@ import (
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
 	"root-backend-service/internal/services/auth"
-	"root-backend-service/internal/services/user"
+	eventservice "root-backend-service/internal/services/event"
 	"root-backend-service/internal/services/search"
+	"root-backend-service/internal/services/user"
 
 	"github.com/joho/godotenv"
 )
@@ -40,17 +41,19 @@ func main() {
 		log.Printf("Warning: Could not init DB schema: %v\n", err)
 	}
 	userRepo := postgres.NewUserRepository(db)
+	eventRepo := postgres.NewEventRepository(db)
 
-	// 3. Inicialización de Handlers HTTP (Adaptadores Primarios - Mockeados)
+	// 3. Inicialización de Servicios y Handlers HTTP
 	authService := auth.NewAuthService(userRepo)
 	userService := user.NewUserService(userRepo)
-	searchService := search.NewSearchService(userRepo)
+	eventService := eventservice.NewEventService(eventRepo)
+	searchService := search.NewSearchService(userRepo, eventRepo)
 
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	communityHandler := handlers.NewCommunityHandler()
 	postHandler := handlers.NewPostHandler()
-	eventHandler := handlers.NewEventHandler()
+	eventHandler := handlers.NewEventHandler(eventService)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
 
