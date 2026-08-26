@@ -36,11 +36,8 @@ func main() {
 	}
 	defer db.Close()
 
-	// 2. Inicializar base de datos
+	// 2. Inicializar repositorios de la base de datos
 	kycRepo := postgres.NewKycRepository(db)
-	if err := kycRepo.InitSchema(context.Background()); err != nil {
-		log.Printf("Warning: Could not init DB schema: %v\n", err)
-	}
 	userRepo := postgres.NewUserRepository(db)
 	chatRepo := postgres.NewChatRepository(db)
 	messageRepo := postgres.NewMessageRepository(db)
