@@ -29,6 +29,8 @@ type ChatRepository interface {
 	GetChatByID(ctx context.Context, id string) (*domain.Chat, error)
 	UpdateLastMessage(ctx context.Context, chatID string, lastMessage string) error
 	AddParticipant(ctx context.Context, participant *domain.ChatParticipant) error
+	GetUserChats(ctx context.Context, userID string) ([]domain.Chat, error)
+	GetDirectChatBetweenUsers(ctx context.Context, user1ID, user2ID string) (*domain.Chat, error)
 }
 
 type MessageRepository interface {

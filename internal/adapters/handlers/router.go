@@ -104,6 +104,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Patch("/transfers/{id}/status", cfg.TransferHandler.UpdateStatus)
 
 			// Chats
+			r.Get("/chats", cfg.ChatHandler.GetUserChats)
+			r.Post("/chats/direct", cfg.ChatHandler.CreateDirectChat)
+			r.Get("/chats/{id}", cfg.ChatHandler.GetChatByID)
 			r.Get("/chats/{id}/messages", cfg.ChatHandler.GetMessages)
 			r.Post("/chats/{id}/messages", cfg.ChatHandler.SendMessage)
 		})

@@ -16,6 +16,8 @@ type Chat struct {
 	LastMessage string    `json:"last_message"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+
+	Participants []User `json:"participants,omitempty"`
 }
 
 type ChatParticipant struct {

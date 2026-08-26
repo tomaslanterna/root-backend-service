@@ -25,6 +25,9 @@ type SearchService interface {
 type ChatService interface {
 	GetMessages(ctx context.Context, chatID string, afterTimestamp string, currentUserID string) ([]domain.Message, error)
 	SendMessage(ctx context.Context, chatID, currentUserID, content string, msgType domain.MessageType) (*domain.Message, error)
+	GetUserChats(ctx context.Context, userID string) ([]domain.Chat, error)
+	GetOrCreateDirectChat(ctx context.Context, currentUserID, targetUserID string) (*domain.Chat, error)
+	GetChatByID(ctx context.Context, chatID, currentUserID string) (*domain.Chat, error)
 }
 
 type TransferService interface {
