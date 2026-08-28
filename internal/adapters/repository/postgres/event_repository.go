@@ -281,9 +281,9 @@ func (r *EventRepository) GetFollowedGoingAttendees(ctx context.Context, eventID
 
 	baseWhere := ` FROM event_rsvps r
 		JOIN users u ON r.user_id = u.id
-		JOIN users current_user ON current_user.id::text = $2
+		JOIN users viewer ON viewer.id::text = $2
 		WHERE r.event_id::text = $1 AND r.status = 'going'
-		  AND u.id::text = ANY(COALESCE(current_user.following, '{}'::text[]))`
+		  AND u.id::text = ANY(COALESCE(viewer.following, '{}'::text[]))`
 
 	var total int
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*)`+baseWhere, eventID, currentUserID).Scan(&total); err != nil {
@@ -380,8 +380,8 @@ func (r *EventRepository) CreateEventComment(ctx context.Context, eventID, autho
 	comment := &domain.EventComment{TargetID: eventID, AuthorID: authorID, Content: content}
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO comments (id, target_type, target_id, author_id, content, timestamp)
-		SELECT gen_random_uuid(), 'event', $1, u.id, $3, NOW()
-		FROM events e, users u WHERE e.id::text = $1 AND u.id::text = $2
+		SELECT gen_random_uuid(), 'event', $1::uuid, u.id, $3, NOW()
+		FROM events e, users u WHERE e.id = $1::uuid AND u.id = $2::uuid
 		RETURNING id, timestamp`, eventID, authorID, content).Scan(&comment.ID, &comment.Timestamp); err != nil {
 		return nil, fmt.Errorf("creating event comment: %w", err)
 	}
