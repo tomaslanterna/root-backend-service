@@ -12,6 +12,7 @@ import (
 	"root-backend-service/internal/adapters/handlers"
 	"root-backend-service/internal/adapters/repository/postgres"
 	"root-backend-service/internal/services/auth"
+	eventservice "root-backend-service/internal/services/event"
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
 	"root-backend-service/internal/services/search"
@@ -43,6 +44,9 @@ func main() {
 	messageRepo := postgres.NewMessageRepository(db)
 	transferRepo := postgres.NewTransferRepository(db)
 	eventRepo := postgres.NewEventRepository(db)
+	if err := eventRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize the required event schema: %v", err)
+	}
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo)

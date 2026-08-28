@@ -70,10 +70,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/posts/{id}/comments", cfg.PostHandler.CommentPost)
 
 		// 3. Eventos y Entradas
-		r.Get("/events", cfg.EventHandler.GetEvents)
+		r.With(OptionalAuthMiddleware).Get("/events", cfg.EventHandler.GetEvents)
 		r.Get("/events/featured", cfg.EventHandler.GetFeaturedEvents)
-		r.Get("/events/{id}", cfg.EventHandler.GetEventByID)
-		r.Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
+		r.With(OptionalAuthMiddleware).Get("/events/{id}", cfg.EventHandler.GetEventByID)
+		r.With(AuthMiddleware).Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
+		r.With(AuthMiddleware).Get("/events/{id}/attendees/followed", cfg.EventHandler.GetFollowedGoingAttendees)
+		r.Get("/events/{id}/comments", cfg.EventHandler.GetEventComments)
+		r.With(AuthMiddleware).Post("/events/{id}/comments", cfg.EventHandler.CreateEventComment)
 		r.Get("/events/{id}/tickets", cfg.EventHandler.GetEventTickets)
 
 		// 4. Comunidades
