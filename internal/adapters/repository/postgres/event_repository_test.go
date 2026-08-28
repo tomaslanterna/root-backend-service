@@ -200,8 +200,12 @@ func TestFollowedAttendeesAreFilteredInSQL(t *testing.T) {
 		t.Fatalf("unexpected attendees: total=%d data=%+v", total, attendees)
 	}
 	queries := strings.Join(state.queries, "\n")
-	if !strings.Contains(queries, "u.id::text = ANY(COALESCE(current_user.following") {
+	if !strings.Contains(queries, "JOIN users viewer") ||
+		!strings.Contains(queries, "u.id::text = ANY(COALESCE(viewer.following") {
 		t.Fatalf("follow restriction missing from SQL: %s", queries)
+	}
+	if strings.Contains(queries, "JOIN users current_user") {
+		t.Fatalf("reserved current_user keyword must not be used as an alias: %s", queries)
 	}
 }
 
@@ -224,5 +228,8 @@ func TestEventCommentsArePaginatedNewestFirstAndCanBeCreated(t *testing.T) {
 	queries := strings.Join(state.queries, "\n")
 	if !strings.Contains(queries, "ORDER BY c.timestamp DESC, c.id DESC") {
 		t.Fatalf("comment ordering missing: %s", queries)
+	}
+	if !strings.Contains(queries, "$1::uuid") || !strings.Contains(queries, "$2::uuid") {
+		t.Fatalf("comment parameters must be cast consistently as UUIDs: %s", queries)
 	}
 }
