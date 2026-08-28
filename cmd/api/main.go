@@ -51,6 +51,7 @@ func main() {
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo)
 	userService := user.NewUserService(userRepo)
+	eventService := eventservice.NewEventService(eventRepo)
 	searchService := search.NewSearchService(userRepo, eventRepo)
 
 	chatService := coreServices.NewChatService(chatRepo, messageRepo)
@@ -68,7 +69,7 @@ func main() {
 	userHandler := handlers.NewUserHandler(userService)
 	communityHandler := handlers.NewCommunityHandler()
 	postHandler := handlers.NewPostHandler()
-	eventHandler := handlers.NewEventHandler(eventRepo)
+	eventHandler := handlers.NewEventHandler(eventService)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
