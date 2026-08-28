@@ -19,13 +19,13 @@ func NewSearchService(userRepo ports.UserRepository, eventRepo ports.EventReposi
 
 func (s *searchService) Search(ctx context.Context, query, searchType, country, currentUserID string) (interface{}, error) {
 	switch searchType {
-	case "usuarios":
+	case "USER":
 		users, err := s.userRepo.SearchUsers(ctx, query, currentUserID)
 		if err != nil {
 			return nil, err
 		}
 		return users, nil
-	case "eventos":
+	case "EVENT":
 		if s.eventRepo != nil {
 			events, err := s.eventRepo.SearchEvents(ctx, query)
 			if err != nil {
@@ -34,7 +34,7 @@ func (s *searchService) Search(ctx context.Context, query, searchType, country, 
 			return events, nil
 		}
 		return []interface{}{}, nil
-	case "posteos":
+	case "POST":
 		// Mock posts for now
 		return []interface{}{}, nil
 	default:

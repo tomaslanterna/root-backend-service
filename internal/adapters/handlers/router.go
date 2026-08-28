@@ -17,6 +17,8 @@ type RouterConfig struct {
 	CrewHandler      *CrewHandler
 	KycHandler       *KycHandler
 	SearchHandler    *SearchHandler
+	ChatHandler      *ChatHandler
+	TransferHandler  *TransferHandler
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -93,6 +95,25 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/kyc/sessions/{id}/face", cfg.KycHandler.UploadFace)
 		r.Post("/kyc/sessions/{id}/submit", cfg.KycHandler.SubmitSession)
 		r.Get("/kyc/sessions/{id}/status", cfg.KycHandler.GetStatus)
+
+		// 7. Chats & Transfers (Requieren Auth)
+		r.Group(func(r chi.Router) {
+			r.Use(AuthMiddleware)
+
+			// Transfers
+			r.Get("/transfers", cfg.TransferHandler.GetTransfers)
+			r.Post("/transfers", cfg.TransferHandler.CreateTransfer)
+			r.Get("/transfers/{id}", cfg.TransferHandler.GetTransfer)
+			r.Post("/transfers/{id}/start-deal", cfg.TransferHandler.StartDeal)
+			r.Patch("/transfers/{id}/status", cfg.TransferHandler.UpdateStatus)
+
+			// Chats
+			r.Get("/chats", cfg.ChatHandler.GetUserChats)
+			r.Post("/chats/direct", cfg.ChatHandler.CreateDirectChat)
+			r.Get("/chats/{id}", cfg.ChatHandler.GetChatByID)
+			r.Get("/chats/{id}/messages", cfg.ChatHandler.GetMessages)
+			r.Post("/chats/{id}/messages", cfg.ChatHandler.SendMessage)
+		})
 	})
 
 	// Webhooks (Sin Auth en este caso, se autentican con HMAC)

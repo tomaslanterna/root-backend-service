@@ -19,27 +19,7 @@ func NewKycRepository(db *sql.DB) ports.KycRepository {
 	}
 }
 
-func (r *kycRepository) InitSchema(ctx context.Context) error {
-	query := `
-	CREATE TABLE IF NOT EXISTS kyc_sessions (
-		id VARCHAR(100) PRIMARY KEY,
-		user_id VARCHAR(100) NOT NULL,
-		status VARCHAR(30) NOT NULL DEFAULT 'CREATED',
-		document_type VARCHAR(50) DEFAULT 'ID_CARD',
-		document_country VARCHAR(3) DEFAULT 'URY',
-		doc_front_url TEXT,
-		doc_back_url TEXT,
-		face_url TEXT,
-		match_score DECIMAL(5,2),
-		extracted_data JSONB,
-		failure_reason TEXT,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);
-	`
-	_, err := r.db.ExecContext(ctx, query)
-	return err
-}
+
 
 func (r *kycRepository) CreateSession(ctx context.Context, session *domain.KycSession) error {
 	query := `
