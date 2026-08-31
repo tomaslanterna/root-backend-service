@@ -47,6 +47,10 @@ func (r *chatRepository) GetChatByID(ctx context.Context, id string) (*domain.Ch
 	participants, err := r.getChatParticipants(ctx, chat.ID)
 	if err == nil {
 		chat.Participants = participants
+	} else {
+		// Log the error to debug why participants failed to load
+		// log.Printf("ERROR getting participants for chat %s: %v", chat.ID, err)
+		return nil, err // Return the error so it doesn't silently fail and cause authorization issues
 	}
 	
 	return &chat, nil

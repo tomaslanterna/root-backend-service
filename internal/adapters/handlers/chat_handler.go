@@ -79,7 +79,13 @@ func (h *ChatHandler) GetChatByID(w http.ResponseWriter, r *http.Request) {
 
 	chat, err := h.chatService.GetChatByID(r.Context(), chatID, currentUserID)
 	if err != nil {
-		respondWithError(w, http.StatusNotFound, err.Error())
+		if err.Error() == "unauthorized: you are not a participant in this chat" {
+			respondWithError(w, http.StatusForbidden, err.Error())
+		} else if err.Error() == "chat not found" {
+			respondWithError(w, http.StatusNotFound, err.Error())
+		} else {
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 
