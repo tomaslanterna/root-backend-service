@@ -274,6 +274,43 @@ func (r *EventRepository) RSVPEvent(ctx context.Context, userID, eventID, status
 	return goingCount, notGoingCount, status, nil
 }
 
+func (r *EventRepository) ClearEventRSVP(ctx context.Context, userID, eventID string) (int, int, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("beginning rsvp removal transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var eventAndUserExist bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM events WHERE id::text = $1)
+		   AND EXISTS(SELECT 1 FROM users WHERE id::text = $2)`, eventID, userID).Scan(&eventAndUserExist); err != nil {
+		return 0, 0, fmt.Errorf("checking event and user before removing rsvp: %w", err)
+	}
+	if !eventAndUserExist {
+		return 0, 0, sql.ErrNoRows
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM event_rsvps
+		WHERE event_id::text = $1 AND user_id::text = $2`, eventID, userID); err != nil {
+		return 0, 0, fmt.Errorf("removing event rsvp: %w", err)
+	}
+
+	var goingCount, notGoingCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FILTER (WHERE status = 'going'),
+			COUNT(*) FILTER (WHERE status = 'not_going')
+		FROM event_rsvps WHERE event_id::text = $1`, eventID).Scan(&goingCount, &notGoingCount); err != nil {
+		return 0, 0, fmt.Errorf("reading rsvp counts after removal: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("committing rsvp removal: %w", err)
+	}
+	return goingCount, notGoingCount, nil
+}
+
 func (r *EventRepository) GetFollowedGoingAttendees(ctx context.Context, eventID, currentUserID string, limit, offset int) ([]domain.Attendee, int, error) {
 	if err := ensureEventExists(ctx, r.db, eventID); err != nil {
 		return nil, 0, err

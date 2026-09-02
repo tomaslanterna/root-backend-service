@@ -32,6 +32,10 @@ func (s *EventService) RSVPEvent(ctx context.Context, userID, eventID, status st
 	return s.eventRepo.RSVPEvent(ctx, userID, eventID, status)
 }
 
+func (s *EventService) ClearEventRSVP(ctx context.Context, userID, eventID string) (int, int, error) {
+	return s.eventRepo.ClearEventRSVP(ctx, userID, eventID)
+}
+
 func (s *EventService) GetFollowedGoingAttendees(ctx context.Context, eventID string, currentUserID string, limit, offset int) ([]domain.Attendee, int, error) {
 	return s.eventRepo.GetFollowedGoingAttendees(ctx, eventID, currentUserID, limit, offset)
 }

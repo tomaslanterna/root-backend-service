@@ -51,6 +51,7 @@ type EventRepository interface {
 	GetEvents(ctx context.Context, filter domain.EventFilter, currentUserID string) ([]domain.Event, int, error)
 	GetEventByID(ctx context.Context, id string, currentUserID string) (*domain.Event, error)
 	RSVPEvent(ctx context.Context, userID, eventID, status string) (goingCount int, notGoingCount int, userRsvp string, err error)
+	ClearEventRSVP(ctx context.Context, userID, eventID string) (goingCount int, notGoingCount int, err error)
 	SearchEvents(ctx context.Context, query string) ([]domain.Event, error)
 	GetFollowedGoingAttendees(ctx context.Context, eventID string, currentUserID string, limit, offset int) ([]domain.Attendee, int, error)
 	GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error)

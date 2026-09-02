@@ -190,6 +190,22 @@ func TestRSVPUsesUpsertAndReturnsUpdatedCounts(t *testing.T) {
 	}
 }
 
+func TestClearEventRSVPDeletesSelectionAndReturnsUpdatedCounts(t *testing.T) {
+	repository, state := newEventRepositoryForTest(t)
+	going, notGoing, err := repository.ClearEventRSVP(context.Background(), "user-1", "event-1")
+	if err != nil {
+		t.Fatalf("clearing rsvp: %v", err)
+	}
+	if going != 8 || notGoing != 3 {
+		t.Fatalf("unexpected rsvp counts: %d %d", going, notGoing)
+	}
+	execs := strings.Join(state.execs, "\n")
+	if !strings.Contains(execs, "DELETE FROM event_rsvps") ||
+		!strings.Contains(execs, "event_id::text = $1 AND user_id::text = $2") {
+		t.Fatalf("rsvp delete query missing: %s", execs)
+	}
+}
+
 func TestFollowedAttendeesAreFilteredInSQL(t *testing.T) {
 	repository, state := newEventRepositoryForTest(t)
 	attendees, total, err := repository.GetFollowedGoingAttendees(context.Background(), "event-1", "user-1", 20, 0)

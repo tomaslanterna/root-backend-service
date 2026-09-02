@@ -17,6 +17,7 @@ type eventServiceStub struct {
 	currentUser  string
 	rsvpUser     string
 	rsvpStatus   string
+	clearedRSVP  bool
 	commentText  string
 	serviceCalls int
 }
@@ -40,6 +41,12 @@ func (s *eventServiceStub) RSVPEvent(_ context.Context, userID, _ string, status
 	s.rsvpUser = userID
 	s.rsvpStatus = status
 	return 8, 3, status, nil
+}
+
+func (s *eventServiceStub) ClearEventRSVP(_ context.Context, userID, _ string) (int, int, error) {
+	s.rsvpUser = userID
+	s.clearedRSVP = true
+	return 7, 3, nil
 }
 
 func (s *eventServiceStub) GetFollowedGoingAttendees(context.Context, string, string, int, int) ([]domain.Attendee, int, error) {
@@ -142,6 +149,34 @@ func TestRSVPUsesAuthenticatedUserAndRejectsArbitraryUserID(t *testing.T) {
 	}
 	if service.rsvpUser != "user-1" || service.rsvpStatus != "not_going" {
 		t.Fatalf("unexpected rsvp identity/status: %s %s", service.rsvpUser, service.rsvpStatus)
+	}
+}
+
+func TestDeleteEventRSVPClearsAuthenticatedUsersSelection(t *testing.T) {
+	service := &eventServiceStub{}
+	handler := NewEventHandler(service)
+	request := httptest.NewRequest(http.MethodDelete, "/v1/events/event-1/rsvp", nil)
+	request = requestWithRouteAndUser(request, "event-1", "user-1")
+	response := httptest.NewRecorder()
+
+	handler.DeleteEventRSVP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if !service.clearedRSVP || service.rsvpUser != "user-1" {
+		t.Fatalf("authenticated RSVP was not cleared: %+v", service)
+	}
+	var body struct {
+		GoingCount    int     `json:"goingCount"`
+		NotGoingCount int     `json:"notGoingCount"`
+		UserRSVP      *string `json:"userRsvp"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	if body.GoingCount != 7 || body.NotGoingCount != 3 || body.UserRSVP != nil {
+		t.Fatalf("unexpected RSVP removal response: %+v", body)
 	}
 }
 

@@ -222,6 +222,22 @@
           }
         },
         {
+          "name": "Clear Event RSVP",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{token}}"}
+            ],
+            "url": {
+              "raw": "http://localhost:8080/v1/events/e1/rsvp",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "events", "e1", "rsvp"]
+            }
+          }
+        },
+        {
           "name": "Get Followed Going Attendees",
           "request": {
             "method": "GET",

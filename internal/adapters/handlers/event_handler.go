@@ -225,6 +225,28 @@ func (h *EventHandler) RSVPEvent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *EventHandler) DeleteEventRSVP(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "Usuario no autenticado")
+		return
+	}
+
+	goingCount, notGoingCount, err := h.eventService.ClearEventRSVP(r.Context(), userID, chi.URLParam(r, "id"))
+	if errors.Is(err, sql.ErrNoRows) {
+		respondWithError(w, http.StatusNotFound, "Evento o usuario no encontrado")
+		return
+	}
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error eliminando RSVP")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true, "goingCount": goingCount,
+		"notGoingCount": notGoingCount, "userRsvp": nil,
+	})
+}
+
 func (h *EventHandler) GetFollowedGoingAttendees(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(UserIDKey).(string)
 	if !ok || userID == "" {

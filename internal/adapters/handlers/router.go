@@ -51,7 +51,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/auth/login", cfg.AuthHandler.Login)
 		r.Post("/auth/register", cfg.AuthHandler.Register)
 		r.Post("/auth/google", cfg.AuthHandler.GoogleLogin)
-		
+
 		r.Get("/users/check-username", cfg.UserHandler.CheckUsername)
 		r.With(OptionalAuthMiddleware).Get("/users/{username}", cfg.UserHandler.GetUser)
 
@@ -74,6 +74,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/events/featured", cfg.EventHandler.GetFeaturedEvents)
 		r.With(OptionalAuthMiddleware).Get("/events/{id}", cfg.EventHandler.GetEventByID)
 		r.With(AuthMiddleware).Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
+		r.With(AuthMiddleware).Delete("/events/{id}/rsvp", cfg.EventHandler.DeleteEventRSVP)
 		r.With(AuthMiddleware).Get("/events/{id}/attendees/followed", cfg.EventHandler.GetFollowedGoingAttendees)
 		r.Get("/events/{id}/comments", cfg.EventHandler.GetEventComments)
 		r.With(AuthMiddleware).Post("/events/{id}/comments", cfg.EventHandler.CreateEventComment)
