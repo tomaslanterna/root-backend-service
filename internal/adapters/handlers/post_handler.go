@@ -2,35 +2,65 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
+
+	"root-backend-service/internal/core/ports"
 )
 
-type PostHandler struct{}
+type PostHandler struct {
+	postService ports.PostService
+}
 
-func NewPostHandler() *PostHandler {
-	return &PostHandler{}
+func NewPostHandler(svc ports.PostService) *PostHandler {
+	return &PostHandler{
+		postService: svc,
+	}
+}
+
+// Helper para parsear enteros de los query params con un valor default
+func getQueryInt(r *http.Request, key string, defaultVal int) int {
+	valStr := r.URL.Query().Get(key)
+	if valStr == "" {
+		return defaultVal
+	}
+	val, err := strconv.Atoi(valStr)
+	if err != nil || val < 1 {
+		return defaultVal
+	}
+	return val
 }
 
 func (h *PostHandler) GetPosts(w http.ResponseWriter, r *http.Request) {
-	mockResponse := map[string]interface{}{
-		"data": []map[string]interface{}{
-			{
-				"id":             "p1",
-				"authorId":       "2",
-				"eventId":        "e1",
-				"communityId":    nil,
-				"title":          "Lanzamiento de tickets",
-				"content":        "¡Ya están disponibles...",
-				"longContent":    "La preventa oficial...",
-				"headerImageUrl": "https://...",
-				"timestamp":      "2024-02-15T10:00:00Z",
-				"likesCount":     145,
-			},
-		},
-		"meta": map[string]interface{}{
-			"nextPage": 2,
-		},
+	includeFeedsQuery := r.URL.Query().Get("include_feeds")
+	if includeFeedsQuery == "" {
+		includeFeedsQuery = "global"
 	}
-	respondWithJSON(w, http.StatusOK, mockResponse)
+
+	feedsRaw := strings.Split(includeFeedsQuery, ",")
+	var includeFeeds []string
+	for _, f := range feedsRaw {
+		includeFeeds = append(includeFeeds, strings.TrimSpace(f))
+	}
+
+	pagination := make(map[string]int)
+	for _, feed := range includeFeeds {
+		pagination[feed+"_page"] = getQueryInt(r, feed+"_page", 1)
+		pagination[feed+"_limit"] = getQueryInt(r, feed+"_limit", 20)
+	}
+
+	var userID string
+	if val := r.Context().Value(UserIDKey); val != nil {
+		userID = val.(string)
+	}
+
+	response, err := h.postService.GetFeeds(r.Context(), userID, includeFeeds, pagination)
+	if err != nil {
+		http.Error(w, "Failed to retrieve posts", http.StatusInternalServerError)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
 }
 
 func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {

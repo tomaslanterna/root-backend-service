@@ -57,3 +57,10 @@ type EventRepository interface {
 	CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error)
 	InitSchema(ctx context.Context) error
 }
+
+type PostRepository interface {
+	GetGlobalPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
+	GetFeaturedPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
+	GetFollowingPosts(ctx context.Context, userID string, limit, offset int) ([]domain.Post, error)
+}
+

@@ -47,3 +47,12 @@ type EventService interface {
 	GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error)
 }
+
+type FeedData struct {
+	Data       []domain.Post          `json:"data"`
+	Pagination map[string]interface{} `json:"pagination"`
+}
+
+type PostService interface {
+	GetFeeds(ctx context.Context, userID string, includeFeeds []string, pagination map[string]int) (map[string]FeedData, error)
+}

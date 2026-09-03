@@ -64,7 +64,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		})
 
 		// 2. Feed y Publicaciones
-		r.Get("/posts", cfg.PostHandler.GetPosts)
+		r.With(OptionalAuthMiddleware).Get("/posts", cfg.PostHandler.GetPosts)
 		r.Post("/posts", cfg.PostHandler.CreatePost)
 		r.Post("/posts/{id}/like", cfg.PostHandler.LikePost)
 		r.Post("/posts/{id}/comments", cfg.PostHandler.CommentPost)
