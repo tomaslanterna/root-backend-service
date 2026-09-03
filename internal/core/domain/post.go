@@ -12,11 +12,13 @@ type Post struct {
 	Title          *string   `json:"title,omitempty"`
 	Content        string    `json:"content"`
 	LongContent    *string   `json:"longContent,omitempty"`
-	HeaderImageURL *string   `json:"headerImageUrl,omitempty"`
+	HeaderImageURL *string   `json:"headerImageUrl"`
 	Timestamp      time.Time `json:"timestamp"`
 	IsFeatured     bool      `json:"isFeatured"`
 	// Campos extra que pueden venir hidratados
-	AuthorName     string    `json:"authorName,omitempty"`
-	AuthorAvatar   string    `json:"authorAvatar,omitempty"`
-	LikesCount     int       `json:"likesCount,omitempty"`
+	AuthorName     string    `json:"authorName"`
+	AuthorAvatar   string    `json:"authorAvatar"`
+	IsVerified     bool      `json:"isVerified"`
+	LikesCount     int       `json:"likesCount"`
+	Tags           []string  `json:"tags"`
 }
