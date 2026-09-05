@@ -65,9 +65,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		// 2. Feed y Publicaciones
 		r.With(OptionalAuthMiddleware).Get("/posts", cfg.PostHandler.GetPosts)
+		r.With(OptionalAuthMiddleware).Get("/posts/{id}", cfg.PostHandler.GetPostByID)
 		r.Post("/posts", cfg.PostHandler.CreatePost)
 		r.Post("/posts/{id}/like", cfg.PostHandler.LikePost)
-		r.Post("/posts/{id}/comments", cfg.PostHandler.CommentPost)
+		r.Route("/posts/{id}/comments", func(r chi.Router) {
+			r.Get("/", cfg.PostHandler.GetPostComments)
+			r.With(AuthMiddleware).Post("/", cfg.PostHandler.CommentPost)
+		})
 
 		// 3. Eventos y Entradas
 		r.With(OptionalAuthMiddleware).Get("/events", cfg.EventHandler.GetEvents)
@@ -75,8 +79,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(OptionalAuthMiddleware).Get("/events/{id}", cfg.EventHandler.GetEventByID)
 		r.With(AuthMiddleware).Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
 		r.With(AuthMiddleware).Get("/events/{id}/attendees/followed", cfg.EventHandler.GetFollowedGoingAttendees)
-		r.Get("/events/{id}/comments", cfg.EventHandler.GetEventComments)
-		r.With(AuthMiddleware).Post("/events/{id}/comments", cfg.EventHandler.CreateEventComment)
+		r.Route("/events/{id}/comments", func(r chi.Router) {
+			r.Get("/", cfg.EventHandler.GetEventComments)
+			r.With(AuthMiddleware).Post("/", cfg.EventHandler.CreateEventComment)
+		})
 		r.Get("/events/{id}/tickets", cfg.EventHandler.GetEventTickets)
 
 		// 4. Comunidades

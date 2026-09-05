@@ -55,4 +55,7 @@ type FeedData struct {
 
 type PostService interface {
 	GetFeeds(ctx context.Context, userID string, includeFeeds []string, pagination map[string]int) (map[string]FeedData, error)
+	GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error)
+	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
+	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
 }
