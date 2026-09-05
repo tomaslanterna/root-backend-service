@@ -62,5 +62,8 @@ type PostRepository interface {
 	GetGlobalPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
 	GetFeaturedPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
 	GetFollowingPosts(ctx context.Context, userID string, limit, offset int) ([]domain.Post, error)
+	GetPostByID(ctx context.Context, id string) (*domain.Post, error)
+	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
+	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
 }
 

@@ -100,3 +100,15 @@ func (s *postService) GetFeeds(ctx context.Context, userID string, includeFeeds 
 
 	return result, nil
 }
+
+func (s *postService) GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error) {
+	return s.postRepo.GetPostByID(ctx, id)
+}
+
+func (s *postService) GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error) {
+	return s.postRepo.GetPostComments(ctx, postID, limit, offset)
+}
+
+func (s *postService) CreatePostComment(ctx context.Context, postID, authorID, content string) (*domain.EventComment, error) {
+	return s.postRepo.CreatePostComment(ctx, postID, authorID, content)
+}
