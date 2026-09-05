@@ -44,6 +44,7 @@ func main() {
 	messageRepo := postgres.NewMessageRepository(db)
 	transferRepo := postgres.NewTransferRepository(db)
 	eventRepo := postgres.NewEventRepository(db)
+	postRepo := postgres.NewPostRepository(db)
 	if err := eventRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize the required event schema: %v", err)
 	}
@@ -53,6 +54,7 @@ func main() {
 	userService := user.NewUserService(userRepo)
 	eventService := eventservice.NewEventService(eventRepo)
 	searchService := search.NewSearchService(userRepo, eventRepo)
+	postService := coreServices.NewPostService(postRepo)
 
 	chatService := coreServices.NewChatService(chatRepo, messageRepo)
 	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo)
@@ -68,7 +70,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	communityHandler := handlers.NewCommunityHandler()
-	postHandler := handlers.NewPostHandler()
+	postHandler := handlers.NewPostHandler(postService)
 	eventHandler := handlers.NewEventHandler(eventService)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
