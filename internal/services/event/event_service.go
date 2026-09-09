@@ -7,12 +7,14 @@ import (
 )
 
 type EventService struct {
-	eventRepo ports.EventRepository
+	eventRepo  ports.EventRepository
+	artistRepo ports.ArtistRepository
 }
 
-func NewEventService(eventRepo ports.EventRepository) ports.EventService {
+func NewEventService(eventRepo ports.EventRepository, artistRepo ports.ArtistRepository) ports.EventService {
 	return &EventService{
-		eventRepo: eventRepo,
+		eventRepo:  eventRepo,
+		artistRepo: artistRepo,
 	}
 }
 
@@ -25,7 +27,18 @@ func (s *EventService) GetEvents(ctx context.Context, filter domain.EventFilter,
 }
 
 func (s *EventService) GetEventByID(ctx context.Context, id string, currentUserID string) (*domain.Event, error) {
-	return s.eventRepo.GetEventByID(ctx, id, currentUserID)
+	event, err := s.eventRepo.GetEventByID(ctx, id, currentUserID)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Fetch lineup
+	lineup, err := s.artistRepo.GetEventLineup(ctx, id)
+	if err == nil && len(lineup) > 0 {
+		event.Artists = lineup
+	}
+	
+	return event, nil
 }
 
 func (s *EventService) RSVPEvent(ctx context.Context, userID, eventID, status string) (int, int, string, error) {
@@ -42,4 +55,8 @@ func (s *EventService) GetEventComments(ctx context.Context, eventID string, lim
 
 func (s *EventService) CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error) {
 	return s.eventRepo.CreateEventComment(ctx, eventID, authorID, content)
+}
+
+func (s *EventService) GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error) {
+	return s.eventRepo.GetPendingSurveys(ctx, userID)
 }

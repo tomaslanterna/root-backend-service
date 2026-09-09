@@ -46,6 +46,7 @@ type EventService interface {
 	GetFollowedGoingAttendees(ctx context.Context, eventID string, currentUserID string, limit, offset int) ([]domain.Attendee, int, error)
 	GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error)
+	GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error)
 }
 
 type FeedData struct {

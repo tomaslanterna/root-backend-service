@@ -10,8 +10,9 @@ type Event struct {
 	Location           string    `json:"location"`
 	CinematicBannerURL string    `json:"cinematicBannerUrl"`
 	Description        string    `json:"description"`
-	Lineup             []string  `json:"lineup"`
-	Genre              *string   `json:"genre,omitempty"`
+	Lineup             []string      `json:"lineup"`
+	Artists            []EventArtist `json:"artists,omitempty"`
+	Genre              *string       `json:"genre,omitempty"`
 	Price              *float64  `json:"price,omitempty"`
 	IsFree             bool      `json:"isFree"`
 	IsFeatured         bool      `json:"isFeatured"`

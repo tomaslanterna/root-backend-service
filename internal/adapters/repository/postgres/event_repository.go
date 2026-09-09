@@ -460,3 +460,26 @@ func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
 	}
 	return events, nil
 }
+
+func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT e.id, e.title, e.producer_id, e.date, e.location,
+			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
+			COALESCE(e.lineup, '{}'), e.genre, e.price,
+			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
+			0 AS going_count, 0 AS not_going_count, ur.status
+		FROM events e
+		JOIN event_rsvps ur ON ur.event_id = e.id
+		WHERE ur.user_id::text = $1 AND ur.status = 'going'
+		  AND e.date < CURRENT_TIMESTAMP
+		  AND NOT EXISTS (
+			  SELECT 1 FROM event_surveys es 
+			  WHERE es.event_id = e.id AND es.user_id::text = $1
+		  )
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("querying pending surveys: %w", err)
+	}
+	defer rows.Close()
+	return scanEvents(rows)
+}
