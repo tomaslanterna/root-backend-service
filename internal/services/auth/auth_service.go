@@ -45,7 +45,7 @@ func (s *authService) Login(ctx context.Context, email, password string) (string
 	claims := jwt.MapClaims{
 		"sub":  user.ID,
 		"role": user.Role,
-		"exp":  time.Now().Add(time.Hour * 72).Unix(),
+		"exp":  time.Now().Add(time.Hour * 168).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -168,7 +168,7 @@ func (s *authService) GoogleLogin(ctx context.Context, idToken string) (string, 
 	claims := jwt.MapClaims{
 		"sub":  user.ID,
 		"role": user.Role,
-		"exp":  time.Now().Add(time.Hour * 72).Unix(),
+		"exp":  time.Now().Add(time.Hour * 168).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
