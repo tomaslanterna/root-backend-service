@@ -15,6 +15,7 @@ import (
 	eventservice "root-backend-service/internal/services/event"
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
+	survey "root-backend-service/internal/services/survey"
 	"root-backend-service/internal/services/search"
 
 	coreServices "root-backend-service/internal/core/services"
@@ -45,19 +46,29 @@ func main() {
 	transferRepo := postgres.NewTransferRepository(db)
 	eventRepo := postgres.NewEventRepository(db)
 	postRepo := postgres.NewPostRepository(db)
+	artistRepo := postgres.NewArtistRepository(db)
+	surveyRepo := postgres.NewEventSurveyRepository(db)
+
 	if err := eventRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize the required event schema: %v", err)
+	}
+	if err := artistRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize the required artist schema: %v", err)
+	}
+	if err := surveyRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize the required survey schema: %v", err)
 	}
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo)
 	userService := user.NewUserService(userRepo)
-	eventService := eventservice.NewEventService(eventRepo)
+	eventService := eventservice.NewEventService(eventRepo, artistRepo)
 	searchService := search.NewSearchService(userRepo, eventRepo)
 	postService := coreServices.NewPostService(postRepo)
 
 	chatService := coreServices.NewChatService(chatRepo, messageRepo)
 	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo)
+	surveyService := survey.NewSurveyService(surveyRepo)
 
 	// Inyectar dependencias para KYC
 	s3Service, err := s3service.NewS3Service(context.Background())
@@ -78,6 +89,7 @@ func main() {
 
 	chatHandler := handlers.NewChatHandler(chatService)
 	transferHandler := handlers.NewTransferHandler(transferService)
+	surveyHandler := handlers.NewSurveyHandler(surveyService, eventService)
 
 	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
@@ -91,6 +103,7 @@ func main() {
 		SearchHandler:    searchHandler,
 		ChatHandler:      chatHandler,
 		TransferHandler:  transferHandler,
+		SurveyHandler:    surveyHandler,
 	})
 
 	// 6. Configuración y Arranque del Servidor HTTP

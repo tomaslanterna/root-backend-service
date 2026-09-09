@@ -19,6 +19,7 @@ type RouterConfig struct {
 	SearchHandler    *SearchHandler
 	ChatHandler      *ChatHandler
 	TransferHandler  *TransferHandler
+	SurveyHandler    *SurveyHandler
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -102,9 +103,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/kyc/sessions/{id}/submit", cfg.KycHandler.SubmitSession)
 		r.Get("/kyc/sessions/{id}/status", cfg.KycHandler.GetStatus)
 
-		// 7. Chats & Transfers (Requieren Auth)
+		// 7. Autenticados Generales (Chats, Transfers, Encuestas)
 		r.Group(func(r chi.Router) {
 			r.Use(AuthMiddleware)
+
+			// Surveys
+			r.Get("/users/me/pending-surveys", cfg.SurveyHandler.GetPendingSurveys)
+			r.Post("/events/{id}/surveys", cfg.SurveyHandler.SubmitSurvey)
 
 			// Transfers
 			r.Get("/transfers", cfg.TransferHandler.GetTransfers)
