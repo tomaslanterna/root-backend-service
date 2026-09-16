@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"encoding/json"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 	"strings"
@@ -474,12 +475,60 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 		  AND e.date < CURRENT_TIMESTAMP
 		  AND NOT EXISTS (
 			  SELECT 1 FROM event_surveys es 
-			  WHERE es.event_id = e.id AND es.user_id::text = $1
+			  WHERE es.event_id = e.id AND es.user_id::text = $2
 		  )
-	`, userID)
+	`, userID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("querying pending surveys: %w", err)
 	}
 	defer rows.Close()
 	return scanEvents(rows)
+}
+
+func (r *EventRepository) GetUserEvents(ctx context.Context, username string) ([]domain.Event, error) {
+	query := `
+		SELECT e.id, e.title, e.producer_id, e.date, e.location,
+			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
+			COALESCE(e.lineup, '{}'), e.genre, e.price,
+			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
+			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), er.status
+		FROM events e
+		JOIN event_rsvps er ON e.id = er.event_id
+		JOIN users u ON u.id = er.user_id
+		LEFT JOIN LATERAL (
+			SELECT COUNT(*) FILTER (WHERE status = 'going') AS going_count,
+				COUNT(*) FILTER (WHERE status = 'not_going') AS not_going_count
+			FROM event_rsvps WHERE event_id = e.id
+		) counts ON TRUE
+		WHERE u.username = $1 AND er.status = 'going'
+		ORDER BY e.date DESC
+	`
+	rows, err := r.db.QueryContext(ctx, query, username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []domain.Event
+	for rows.Next() {
+		var e domain.Event
+		var lineup []byte
+		if err := rows.Scan(
+			&e.ID, &e.Title, &e.ProducerID, &e.Date, &e.Location,
+			&e.CinematicBannerURL, &e.Description, &lineup,
+			&e.Genre, &e.Price, &e.IsFeatured, &e.CreatedAt,
+			&e.GoingCount, &e.NotGoingCount, &e.UserRSVP,
+		); err != nil {
+			return nil, err
+		}
+		if len(lineup) > 0 {
+			var parsedLineup []string
+			if err := json.Unmarshal(lineup, &parsedLineup); err == nil {
+				e.Lineup = parsedLineup
+			}
+		}
+		events = append(events, e)
+	}
+
+	return events, nil
 }

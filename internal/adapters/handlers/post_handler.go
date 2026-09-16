@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 )
 
@@ -90,14 +91,6 @@ func (h *PostHandler) GetPostByID(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, post)
 }
 
-func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
-	mockResponse := map[string]interface{}{
-		"id":        "p2",
-		"authorId":  "1",
-		"timestamp": "2024-02-15T12:00:00Z",
-	}
-	respondWithJSON(w, http.StatusCreated, mockResponse)
-}
 
 func (h *PostHandler) LikePost(w http.ResponseWriter, r *http.Request) {
 	mockResponse := map[string]interface{}{
@@ -166,4 +159,50 @@ func (h *PostHandler) CommentPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondWithJSON(w, http.StatusCreated, comment)
+}
+
+func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Title          string `json:"title"`
+		Content        string `json:"content"`
+		LongContent    string `json:"long_content"`
+		HeaderImageURL string `json:"header_image_url"`
+		CommunityID    string `json:"community_id"`
+		EventID        string `json:"event_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	post := &domain.Post{
+		AuthorID:       userID,
+		Title:          strPtr(req.Title),
+		Content:        req.Content,
+		LongContent:    strPtr(req.LongContent),
+		HeaderImageURL: strPtr(req.HeaderImageURL),
+		CommunityID:    strPtr(req.CommunityID),
+		EventID:        strPtr(req.EventID),
+	}
+
+	if err := h.postService.CreatePost(r.Context(), post); err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusCreated, post)
+}
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

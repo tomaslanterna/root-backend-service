@@ -12,6 +12,7 @@ import (
 	"root-backend-service/internal/adapters/handlers"
 	"root-backend-service/internal/adapters/repository/postgres"
 	"root-backend-service/internal/services/auth"
+	"root-backend-service/internal/services/community"
 	eventservice "root-backend-service/internal/services/event"
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
@@ -48,6 +49,7 @@ func main() {
 	postRepo := postgres.NewPostRepository(db)
 	artistRepo := postgres.NewArtistRepository(db)
 	surveyRepo := postgres.NewEventSurveyRepository(db)
+	communityRepo := postgres.NewCommunityRepository(db)
 
 	if err := eventRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize the required event schema: %v", err)
@@ -69,6 +71,7 @@ func main() {
 	chatService := coreServices.NewChatService(chatRepo, messageRepo)
 	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo)
 	surveyService := survey.NewSurveyService(surveyRepo)
+	communityService := community.NewCommunityService(communityRepo)
 
 	// Inyectar dependencias para KYC
 	s3Service, err := s3service.NewS3Service(context.Background())
@@ -80,7 +83,7 @@ func main() {
 	// 4. Inicialización de Handlers HTTP
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
-	communityHandler := handlers.NewCommunityHandler()
+	communityHandler := handlers.NewCommunityHandler(communityService)
 	postHandler := handlers.NewPostHandler(postService)
 	eventHandler := handlers.NewEventHandler(eventService)
 	crewHandler := handlers.NewCrewHandler()
@@ -90,6 +93,7 @@ func main() {
 	chatHandler := handlers.NewChatHandler(chatService)
 	transferHandler := handlers.NewTransferHandler(transferService)
 	surveyHandler := handlers.NewSurveyHandler(surveyService, eventService)
+	aiHandler := handlers.NewAIHandler()
 
 	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
@@ -104,6 +108,7 @@ func main() {
 		ChatHandler:      chatHandler,
 		TransferHandler:  transferHandler,
 		SurveyHandler:    surveyHandler,
+		AIHandler:        aiHandler,
 	})
 
 	// 6. Configuración y Arranque del Servidor HTTP

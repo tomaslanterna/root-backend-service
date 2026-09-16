@@ -47,6 +47,7 @@ type EventService interface {
 	GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error)
 	GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error)
+	GetUserEvents(ctx context.Context, username string) ([]domain.Event, error)
 }
 
 type FeedData struct {
@@ -57,6 +58,14 @@ type FeedData struct {
 type PostService interface {
 	GetFeeds(ctx context.Context, userID string, includeFeeds []string, pagination map[string]int) (map[string]FeedData, error)
 	GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error)
+	CreatePost(ctx context.Context, post *domain.Post) error
 	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
+}
+
+type CommunityService interface {
+	GetCommunitiesByCountry(ctx context.Context, countryID string, currentUserID string, limit, offset int) ([]domain.Community, error)
+	GetCommunityByID(ctx context.Context, id string, currentUserID string) (*domain.Community, error)
+	ToggleJoinCommunity(ctx context.Context, communityID, userID string) (isMember bool, membersCount int, err error)
+	GetUserCommunities(ctx context.Context, username string) ([]domain.Community, error)
 }

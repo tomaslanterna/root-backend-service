@@ -60,3 +60,7 @@ func (s *EventService) CreateEventComment(ctx context.Context, eventID string, a
 func (s *EventService) GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error) {
 	return s.eventRepo.GetPendingSurveys(ctx, userID)
 }
+
+func (s *EventService) GetUserEvents(ctx context.Context, username string) ([]domain.Event, error) {
+	return s.eventRepo.GetUserEvents(ctx, username)
+}

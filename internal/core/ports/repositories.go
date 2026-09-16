@@ -52,6 +52,7 @@ type EventRepository interface {
 	GetEventByID(ctx context.Context, id string, currentUserID string) (*domain.Event, error)
 	RSVPEvent(ctx context.Context, userID, eventID, status string) (goingCount int, notGoingCount int, userRsvp string, err error)
 	SearchEvents(ctx context.Context, query string) ([]domain.Event, error)
+	GetUserEvents(ctx context.Context, username string) ([]domain.Event, error)
 	GetFollowedGoingAttendees(ctx context.Context, eventID string, currentUserID string, limit, offset int) ([]domain.Attendee, int, error)
 	GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error)
@@ -69,7 +70,17 @@ type PostRepository interface {
 	GetFeaturedPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
 	GetFollowingPosts(ctx context.Context, userID string, limit, offset int) ([]domain.Post, error)
 	GetPostByID(ctx context.Context, id string) (*domain.Post, error)
+	CreatePost(ctx context.Context, post *domain.Post) error
+	
+	// Comments
 	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
 }
 
+
+type CommunityRepository interface {
+	GetCommunitiesByCountry(ctx context.Context, countryID string, currentUserID string, limit, offset int) ([]domain.Community, error)
+	GetCommunityByID(ctx context.Context, id string, currentUserID string) (*domain.Community, error)
+	ToggleJoinCommunity(ctx context.Context, communityID, userID string) (isMember bool, membersCount int, err error)
+	GetUserCommunities(ctx context.Context, username string) ([]domain.Community, error)
+}
