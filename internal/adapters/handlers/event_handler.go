@@ -325,3 +325,23 @@ func (h *EventHandler) GetEventTickets(w http.ResponseWriter, r *http.Request) {
 		}},
 	})
 }
+
+func (h *EventHandler) GetUserEvents(w http.ResponseWriter, r *http.Request) {
+	username := chi.URLParam(r, "username")
+	if username == "" {
+		respondWithError(w, http.StatusBadRequest, "Username is required")
+		return
+	}
+
+	events, err := h.eventService.GetUserEvents(r.Context(), username)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if events == nil {
+		events = []domain.Event{}
+	}
+
+	respondWithJSON(w, http.StatusOK, events)
+}

@@ -239,3 +239,30 @@ func (r *postRepository) CreatePostComment(ctx context.Context, postID, authorID
 	}
 	return comment, nil
 }
+
+func (r *postRepository) CreatePost(ctx context.Context, post *domain.Post) error {
+	query := `
+		INSERT INTO posts (id, author_id, community_id, event_id, title, content, long_content, header_image_url, timestamp, is_featured)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW(), false)
+		RETURNING id, timestamp
+	`
+	var communityID, eventID sql.NullString
+	if post.CommunityID != nil && *post.CommunityID != "" {
+		communityID = sql.NullString{String: *post.CommunityID, Valid: true}
+	}
+	if post.EventID != nil && *post.EventID != "" {
+		eventID = sql.NullString{String: *post.EventID, Valid: true}
+	}
+
+	err := r.db.QueryRowContext(ctx, query,
+		post.AuthorID,
+		communityID,
+		eventID,
+		post.Title,
+		post.Content,
+		post.LongContent,
+		post.HeaderImageURL,
+	).Scan(&post.ID, &post.Timestamp)
+
+	return err
+}

@@ -20,6 +20,7 @@ type RouterConfig struct {
 	ChatHandler      *ChatHandler
 	TransferHandler  *TransferHandler
 	SurveyHandler    *SurveyHandler
+	AIHandler        *AIHandler
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -55,6 +56,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		
 		r.Get("/users/check-username", cfg.UserHandler.CheckUsername)
 		r.With(OptionalAuthMiddleware).Get("/users/{username}", cfg.UserHandler.GetUser)
+		r.With(OptionalAuthMiddleware).Get("/users/{username}/communities", cfg.CommunityHandler.GetUserCommunities)
+		r.With(OptionalAuthMiddleware).Get("/users/{username}/events", cfg.EventHandler.GetUserEvents)
+
 
 		r.Group(func(r chi.Router) {
 			r.Use(AuthMiddleware)
@@ -67,7 +71,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// 2. Feed y Publicaciones
 		r.With(OptionalAuthMiddleware).Get("/posts", cfg.PostHandler.GetPosts)
 		r.With(OptionalAuthMiddleware).Get("/posts/{id}", cfg.PostHandler.GetPostByID)
-		r.Post("/posts", cfg.PostHandler.CreatePost)
+		r.With(AuthMiddleware).Post("/posts", cfg.PostHandler.CreatePost)
 		r.Post("/posts/{id}/like", cfg.PostHandler.LikePost)
 		r.Route("/posts/{id}/comments", func(r chi.Router) {
 			r.Get("/", cfg.PostHandler.GetPostComments)
@@ -87,9 +91,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/events/{id}/tickets", cfg.EventHandler.GetEventTickets)
 
 		// 4. Comunidades
-		r.Get("/communities", cfg.CommunityHandler.GetCommunities)
-		r.Get("/communities/{id}", cfg.CommunityHandler.GetCommunityByID)
-		r.Post("/communities/{id}/join", cfg.CommunityHandler.JoinCommunity)
+		r.With(OptionalAuthMiddleware).Get("/communities", cfg.CommunityHandler.GetCommunities)
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}", cfg.CommunityHandler.GetCommunityByID) // Añadido OptionalAuthMiddleware para saber el estado de isMember
+		r.With(AuthMiddleware).Post("/communities/{id}/join", cfg.CommunityHandler.JoinCommunity)
 
 		// 5. Crews Matcher (Event Squads)
 		r.Get("/crews/deck", cfg.CrewHandler.GetDeck)
@@ -103,13 +107,20 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/kyc/sessions/{id}/submit", cfg.KycHandler.SubmitSession)
 		r.Get("/kyc/sessions/{id}/status", cfg.KycHandler.GetStatus)
 
-		// 7. Autenticados Generales (Chats, Transfers, Encuestas)
+		// 7. Autenticados Generales (Encuestas)
 		r.Group(func(r chi.Router) {
 			r.Use(AuthMiddleware)
-
-			// Surveys
 			r.Get("/users/me/pending-surveys", cfg.SurveyHandler.GetPendingSurveys)
 			r.Post("/events/{id}/surveys", cfg.SurveyHandler.SubmitSurvey)
+		})
+
+
+		// 11. AI Assistant
+		r.With(AuthMiddleware).Post("/ai/enhance-text", cfg.AIHandler.EnhanceText)
+
+		// Transfers y Chats
+		r.Group(func(r chi.Router) {
+			r.Use(AuthMiddleware)
 
 			// Transfers
 			r.Get("/transfers", cfg.TransferHandler.GetTransfers)

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
@@ -111,4 +112,11 @@ func (s *postService) GetPostComments(ctx context.Context, postID string, limit,
 
 func (s *postService) CreatePostComment(ctx context.Context, postID, authorID, content string) (*domain.EventComment, error) {
 	return s.postRepo.CreatePostComment(ctx, postID, authorID, content)
+}
+
+func (s *postService) CreatePost(ctx context.Context, post *domain.Post) error {
+	if (post.Title == nil || *post.Title == "") && post.Content == "" {
+		return errors.New("post must have a title or content")
+	}
+	return s.postRepo.CreatePost(ctx, post)
 }
