@@ -111,3 +111,38 @@ func (h *TransferHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success"})
 }
+
+func (h *TransferHandler) PayTransfer(w http.ResponseWriter, r *http.Request) {
+	transferID := chi.URLParam(r, "id")
+	currentUserID := r.Context().Value(UserIDKey).(string)
+
+	initPoint, err := h.transferService.CreatePaymentPreference(r.Context(), transferID, currentUserID)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]string{"init_point": initPoint})
+}
+
+func (h *TransferHandler) MercadoPagoWebhook(w http.ResponseWriter, r *http.Request) {
+	topic := r.URL.Query().Get("topic")
+	id := r.URL.Query().Get("id")
+
+	// Mercado pago sometimes sends them in body for v1 webhooks if not in query
+	if topic == "" || id == "" {
+		topic = r.URL.Query().Get("type")
+		id = r.URL.Query().Get("data.id")
+	}
+
+	if topic != "" && id != "" {
+		err := h.transferService.HandleMercadoPagoWebhook(r.Context(), topic, id)
+		if err != nil {
+			// Log error but return 200 so MP doesn't retry unnecessarily unless it's a critical DB issue
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}

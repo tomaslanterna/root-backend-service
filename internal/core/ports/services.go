@@ -36,6 +36,8 @@ type TransferService interface {
 	UpdateTransferStatus(ctx context.Context, transferID, currentUserID string, status domain.TransferStatus, ticketURL *string) error
 	StartDeal(ctx context.Context, transferID, buyerID string) error
 	GetTransfers(ctx context.Context, status *string) ([]domain.Transfer, error)
+	CreatePaymentPreference(ctx context.Context, transferID, buyerID string) (string, error)
+	HandleMercadoPagoWebhook(ctx context.Context, topic, id string) error
 }
 
 type EventService interface {
