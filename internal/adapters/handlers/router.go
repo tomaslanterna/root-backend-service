@@ -32,12 +32,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Configuración de CORS
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{
-			"http://localhost:3000",
-			"http://127.0.0.1:3000",
-			"http://192.168.1.9:3000", // NUEVA IP Local para tests en celular
-			"capacitor://localhost",    // Origen de Capacitor
-			"http://localhost",         // Origen de Capacitor Android
+		// Usamos AllowOriginFunc para aceptar dinámicamente cualquier origen (ideal para Capacitor y Vercel/Netlify en conjunto)
+		AllowOriginFunc: func(r *http.Request, origin string) bool {
+			return true
 		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
