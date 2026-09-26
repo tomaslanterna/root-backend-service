@@ -32,7 +32,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Configuración de CORS
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "http://127.0.0.1:3000", "*"},
+		AllowedOrigins: []string{
+			"http://localhost:3000",
+			"http://127.0.0.1:3000",
+			"http://192.168.1.9:3000", // NUEVA IP Local para tests en celular
+			"capacitor://localhost",    // Origen de Capacitor
+			"http://localhost",         // Origen de Capacitor Android
+		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
@@ -127,6 +133,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Post("/transfers", cfg.TransferHandler.CreateTransfer)
 			r.Get("/transfers/{id}", cfg.TransferHandler.GetTransfer)
 			r.Post("/transfers/{id}/start-deal", cfg.TransferHandler.StartDeal)
+			r.Post("/transfers/{id}/pay", cfg.TransferHandler.PayTransfer)
 			r.Patch("/transfers/{id}/status", cfg.TransferHandler.UpdateStatus)
 
 			// Chats
@@ -138,8 +145,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		})
 	})
 
-	// Webhooks (Sin Auth en este caso, se autentican con HMAC)
+	// Webhooks (Sin Auth en este caso, se autentican con HMAC o IPNs de MP)
 	r.Post("/v1/webhooks/kyc-provider", cfg.KycHandler.WebhookProvider)
+	r.Post("/v1/webhooks/mercadopago", cfg.TransferHandler.MercadoPagoWebhook)
 
 	return r
 }

@@ -26,8 +26,8 @@ import (
 )
 
 func main() {
-	// Cargar variables de entorno desde .env si existe
-	if err := godotenv.Load(); err != nil {
+	// Cargar variables de entorno desde .env y FORZAR que pisen a las del sistema
+	if err := godotenv.Overload(); err != nil {
 		log.Println("No .env file found, using system environment variables")
 	}
 

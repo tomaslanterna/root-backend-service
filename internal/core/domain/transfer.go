@@ -7,6 +7,7 @@ type TransferStatus string
 const (
 	TransferStatusAvailable   TransferStatus = "AVAILABLE"
 	TransferStatusNegotiating TransferStatus = "NEGOTIATING"
+	TransferStatusPaid        TransferStatus = "PAID"
 	TransferStatusTicketSent  TransferStatus = "TICKET_SENT"
 	TransferStatusCompleted   TransferStatus = "COMPLETED"
 	TransferStatusDisputed    TransferStatus = "DISPUTED"
