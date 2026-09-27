@@ -7,8 +7,11 @@ type Event struct {
 	Title              string    `json:"title"`
 	ProducerID         *string   `json:"producerId,omitempty"`
 	Date               time.Time `json:"date"`
-	Location           string    `json:"location"`
-	CinematicBannerURL string    `json:"cinematicBannerUrl"`
+	Location             string    `json:"location"`
+	Latitude             *float64  `json:"latitude,omitempty"`
+	Longitude            *float64  `json:"longitude,omitempty"`
+	GeofenceRadiusMeters *int      `json:"geofenceRadiusMeters,omitempty"`
+	CinematicBannerURL   string    `json:"cinematicBannerUrl"`
 	Description        string    `json:"description"`
 	Lineup             []string      `json:"lineup"`
 	Artists            []EventArtist `json:"artists,omitempty"`
