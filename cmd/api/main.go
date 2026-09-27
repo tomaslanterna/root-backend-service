@@ -50,6 +50,8 @@ func main() {
 	artistRepo := postgres.NewArtistRepository(db)
 	surveyRepo := postgres.NewEventSurveyRepository(db)
 	communityRepo := postgres.NewCommunityRepository(db)
+	matchRepo := postgres.NewMatchRepository(db)
+	danceRepo := postgres.NewDanceRepository(db)
 
 	if err := eventRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize the required event schema: %v", err)
@@ -72,6 +74,8 @@ func main() {
 	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo)
 	surveyService := survey.NewSurveyService(surveyRepo)
 	communityService := community.NewCommunityService(communityRepo)
+	matchService := coreServices.NewMatchService(matchRepo)
+	danceService := coreServices.NewDanceService(danceRepo, eventRepo)
 
 	// Inyectar dependencias para KYC
 	s3Service, err := s3service.NewS3Service(context.Background())
@@ -84,7 +88,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	communityHandler := handlers.NewCommunityHandler(communityService)
-	postHandler := handlers.NewPostHandler(postService)
+	postHandler := handlers.NewPostHandler(postService, s3Service)
 	eventHandler := handlers.NewEventHandler(eventService)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
@@ -94,6 +98,8 @@ func main() {
 	transferHandler := handlers.NewTransferHandler(transferService)
 	surveyHandler := handlers.NewSurveyHandler(surveyService, eventService)
 	aiHandler := handlers.NewAIHandler()
+	matchHandler := handlers.NewMatchHandler(matchService)
+	danceHandler := handlers.NewDanceHandler(danceService)
 
 	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
@@ -109,6 +115,8 @@ func main() {
 		TransferHandler:  transferHandler,
 		SurveyHandler:    surveyHandler,
 		AIHandler:        aiHandler,
+		MatchHandler:     matchHandler,
+		DanceHandler:     danceHandler,
 	})
 
 	// 6. Configuración y Arranque del Servidor HTTP

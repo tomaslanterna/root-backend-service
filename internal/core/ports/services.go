@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"time"
 	"root-backend-service/internal/core/domain"
 )
 
@@ -70,4 +71,22 @@ type CommunityService interface {
 	GetCommunityByID(ctx context.Context, id string, currentUserID string) (*domain.Community, error)
 	ToggleJoinCommunity(ctx context.Context, communityID, userID string) (isMember bool, membersCount int, err error)
 	GetUserCommunities(ctx context.Context, username string) ([]domain.Community, error)
+}
+
+type SyncDanceRequest struct {
+	EventID    string    `json:"eventId"`
+	StepsCount int       `json:"stepsCount"`
+	StartTime  time.Time `json:"startTime"`
+	EndTime    time.Time `json:"endTime"`
+	Lat        float64   `json:"lat"`
+	Lng        float64   `json:"lng"`
+}
+
+type DanceService interface {
+	SyncSteps(ctx context.Context, userID string, req SyncDanceRequest) (*domain.DanceSession, error)
+	GetCrewLeaderboards(ctx context.Context, squadID string, eventID *string) (map[string]interface{}, error)
+	GetUserCrews(ctx context.Context, userID string) ([]map[string]interface{}, error)
+	GetUserDanceSessions(ctx context.Context, userID string) ([]map[string]interface{}, error)
+	GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error)
+	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)
 }

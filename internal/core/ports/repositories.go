@@ -84,3 +84,13 @@ type CommunityRepository interface {
 	ToggleJoinCommunity(ctx context.Context, communityID, userID string) (isMember bool, membersCount int, err error)
 	GetUserCommunities(ctx context.Context, username string) ([]domain.Community, error)
 }
+
+type DanceRepository interface {
+	SaveDanceSession(ctx context.Context, session *domain.DanceSession) error
+	GetCrewLeaderboardAllTime(ctx context.Context, squadID string) ([]map[string]interface{}, error)
+	GetCrewLeaderboardByEvent(ctx context.Context, squadID, eventID string) ([]map[string]interface{}, error)
+	GetUserCrews(ctx context.Context, userID string) ([]map[string]interface{}, error)
+	GetUserDanceSessions(ctx context.Context, userID string) ([]map[string]interface{}, error)
+	GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error)
+	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)
+}

@@ -62,3 +62,27 @@ func (h *CrewHandler) GetMatches(w http.ResponseWriter, r *http.Request) {
 	}
 	respondWithJSON(w, http.StatusOK, mockResponse)
 }
+
+func (h *CrewHandler) CreatePermanentCrew(w http.ResponseWriter, r *http.Request) {
+	// For now, we return a mock successful response with an invite code
+	mockResponse := map[string]interface{}{
+		"success": true,
+		"crew": map[string]interface{}{
+			"id":          "perm_crew_1",
+			"name":        "My Dance Crew",
+			"type":        "permanent",
+			"invite_code": "DANCE2024",
+		},
+	}
+	respondWithJSON(w, http.StatusOK, mockResponse)
+}
+
+func (h *CrewHandler) JoinPermanentCrew(w http.ResponseWriter, r *http.Request) {
+	// mock join
+	mockResponse := map[string]interface{}{
+		"success": true,
+		"crewId":  "perm_crew_1",
+		"message": "Successfully joined the crew",
+	}
+	respondWithJSON(w, http.StatusOK, mockResponse)
+}

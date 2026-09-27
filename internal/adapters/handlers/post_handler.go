@@ -2,22 +2,27 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
+	"root-backend-service/internal/services/s3"
 )
 
 type PostHandler struct {
 	postService ports.PostService
+	s3Service   s3.S3Service
 }
 
-func NewPostHandler(svc ports.PostService) *PostHandler {
+func NewPostHandler(svc ports.PostService, s3Service s3.S3Service) *PostHandler {
 	return &PostHandler{
 		postService: svc,
+		s3Service:   s3Service,
 	}
 }
 
@@ -63,6 +68,25 @@ func (h *PostHandler) GetPosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Transform S3 keys to presigned URLs
+	for feedKey, feedData := range response {
+		for i := range feedData.Data {
+			if feedData.Data[i].HeaderImageURL != nil && *feedData.Data[i].HeaderImageURL != "" && !strings.HasPrefix(*feedData.Data[i].HeaderImageURL, "http") {
+				url, err := h.s3Service.GenerateViewUrl(r.Context(), *feedData.Data[i].HeaderImageURL, 7*24*time.Hour)
+				if err == nil {
+					feedData.Data[i].HeaderImageURL = &url
+				}
+			}
+			if feedData.Data[i].AuthorAvatar != "" && !strings.HasPrefix(feedData.Data[i].AuthorAvatar, "http") {
+				url, err := h.s3Service.GenerateViewUrl(r.Context(), feedData.Data[i].AuthorAvatar, 7*24*time.Hour)
+				if err == nil {
+					feedData.Data[i].AuthorAvatar = url
+				}
+			}
+		}
+		response[feedKey] = feedData
+	}
+
 	respondWithJSON(w, http.StatusOK, response)
 }
 
@@ -86,6 +110,19 @@ func (h *PostHandler) GetPostByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to retrieve post", http.StatusInternalServerError)
 		}
 		return
+	}
+
+	if post.HeaderImageURL != nil && *post.HeaderImageURL != "" && !strings.HasPrefix(*post.HeaderImageURL, "http") {
+		url, err := h.s3Service.GenerateViewUrl(r.Context(), *post.HeaderImageURL, 7*24*time.Hour)
+		if err == nil {
+			post.HeaderImageURL = &url
+		}
+	}
+	if post.AuthorAvatar != "" && !strings.HasPrefix(post.AuthorAvatar, "http") {
+		url, err := h.s3Service.GenerateViewUrl(r.Context(), post.AuthorAvatar, 7*24*time.Hour)
+		if err == nil {
+			post.AuthorAvatar = url
+		}
 	}
 
 	respondWithJSON(w, http.StatusOK, post)
@@ -205,4 +242,42 @@ func strPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// UploadImage handles uploading an image for a post and returns the S3 key
+func (h *PostHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
+	if h.s3Service == nil {
+		respondWithError(w, http.StatusInternalServerError, "S3 Service not initialized")
+		return
+	}
+
+	err := r.ParseMultipartForm(10 << 20) // 10MB limit
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "File too large or invalid")
+		return
+	}
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "No image file provided")
+		return
+	}
+	defer file.Close()
+
+	userID, _ := r.Context().Value(UserIDKey).(string)
+	if userID == "" {
+		userID = "anonymous"
+	}
+
+	key := fmt.Sprintf("posts/%s/%d_%s", userID, time.Now().Unix(), header.Filename)
+	_, s3Err := h.s3Service.UploadToS3(r.Context(), file, key, header.Header.Get("Content-Type"))
+	if s3Err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to upload image to S3")
+		return
+	}
+
+	// We return the key so the frontend can send it in the CreatePost request
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"key": key,
+	})
 }

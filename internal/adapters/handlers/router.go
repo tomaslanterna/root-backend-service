@@ -21,6 +21,8 @@ type RouterConfig struct {
 	TransferHandler  *TransferHandler
 	SurveyHandler    *SurveyHandler
 	AIHandler        *AIHandler
+	MatchHandler     *MatchHandler
+	DanceHandler     *DanceHandler
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -75,6 +77,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(OptionalAuthMiddleware).Get("/posts", cfg.PostHandler.GetPosts)
 		r.With(OptionalAuthMiddleware).Get("/posts/{id}", cfg.PostHandler.GetPostByID)
 		r.With(AuthMiddleware).Post("/posts", cfg.PostHandler.CreatePost)
+		r.With(AuthMiddleware).Post("/posts/image", cfg.PostHandler.UploadImage)
 		r.Post("/posts/{id}/like", cfg.PostHandler.LikePost)
 		r.Route("/posts/{id}/comments", func(r chi.Router) {
 			r.Get("/", cfg.PostHandler.GetPostComments)
@@ -100,8 +103,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		// 5. Crews Matcher (Event Squads)
 		r.Get("/crews/deck", cfg.CrewHandler.GetDeck)
-		r.Post("/crews/swipe", cfg.CrewHandler.Swipe)
+		r.Post("/crews/swipe", cfg.CrewHandler.Swipe) // Old fake endpoint
 		r.Get("/crews/matches", cfg.CrewHandler.GetMatches)
+		r.With(AuthMiddleware).Post("/events/{eventId}/swipes", cfg.MatchHandler.HandleSwipe)
 
 		// 6. KYC (Verificación de Identidad)
 		r.Post("/kyc/sessions", cfg.KycHandler.CreateSession)
@@ -139,6 +143,20 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Get("/chats/{id}", cfg.ChatHandler.GetChatByID)
 			r.Get("/chats/{id}/messages", cfg.ChatHandler.GetMessages)
 			r.Post("/chats/{id}/messages", cfg.ChatHandler.SendMessage)
+		})
+
+		// Dance Ranker
+		r.Route("/dance", func(r chi.Router) {
+			r.With(AuthMiddleware).Post("/sync", cfg.DanceHandler.SyncSteps)
+			r.With(AuthMiddleware).Get("/sessions", cfg.DanceHandler.GetMyDanceSessions)
+		})
+		r.Route("/crews", func(r chi.Router) {
+			r.With(AuthMiddleware).Get("/", cfg.DanceHandler.GetMyCrews)
+			r.With(AuthMiddleware).Post("/", cfg.CrewHandler.CreatePermanentCrew)
+			r.With(AuthMiddleware).Post("/join/{inviteCode}", cfg.CrewHandler.JoinPermanentCrew)
+			r.With(OptionalAuthMiddleware).Get("/{id}", cfg.DanceHandler.GetCrewByID)
+			r.With(AuthMiddleware).Get("/{id}/rankings", cfg.DanceHandler.GetCrewLeaderboards)
+			r.With(AuthMiddleware).Get("/{id}/events", cfg.DanceHandler.GetCrewEvents)
 		})
 	})
 
