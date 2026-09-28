@@ -2,19 +2,24 @@ package event
 
 import (
 	"context"
+	"log"
+	"time"
+
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 )
 
 type EventService struct {
-	eventRepo  ports.EventRepository
-	artistRepo ports.ArtistRepository
+	eventRepo       ports.EventRepository
+	artistRepo      ports.ArtistRepository
+	aiTicketService ports.AiTicketService
 }
 
-func NewEventService(eventRepo ports.EventRepository, artistRepo ports.ArtistRepository) ports.EventService {
+func NewEventService(eventRepo ports.EventRepository, artistRepo ports.ArtistRepository, aiTicketService ports.AiTicketService) ports.EventService {
 	return &EventService{
-		eventRepo:  eventRepo,
-		artistRepo: artistRepo,
+		eventRepo:       eventRepo,
+		artistRepo:      artistRepo,
+		aiTicketService: aiTicketService,
 	}
 }
 
@@ -36,6 +41,26 @@ func (s *EventService) GetEventByID(ctx context.Context, id string, currentUserI
 	lineup, err := s.artistRepo.GetEventLineup(ctx, id)
 	if err == nil && len(lineup) > 0 {
 		event.Artists = lineup
+	}
+
+	// Ticket TTL Cache Logic
+	now := time.Now()
+	needsUpdate := event.TicketInfoFetched == nil || now.Sub(*event.TicketInfoFetched) > time.Hour
+
+	if needsUpdate && event.TicketURL != nil && *event.TicketURL != "" {
+		ticketData, err := s.aiTicketService.FetchEventTickets(ctx, event.Title, event.Date.Format("2006-01-02"), event.Location, "", *event.TicketURL)
+		if err == nil && ticketData != nil {
+			err = s.eventRepo.UpdateEventTicketInfo(ctx, event.ID, ticketData.TicketTiers, ticketData.Source)
+			if err != nil {
+				log.Printf("Error updating ticket info in DB: %v", err)
+			} else {
+				event.TicketTiers = ticketData.TicketTiers
+				event.TicketSource = ticketData.Source
+				event.TicketInfoFetched = &now
+			}
+		} else {
+			log.Printf("Error fetching tickets from Gemini: %v", err)
+		}
 	}
 	
 	return event, nil

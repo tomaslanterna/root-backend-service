@@ -38,6 +38,10 @@ func (r *EventRepository) InitSchema(ctx context.Context) error {
 	statements := []string{
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS genre VARCHAR(100)`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS price NUMERIC(10,2)`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_tiers JSONB`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_source TEXT`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_url TEXT`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_info_fetched_at TIMESTAMP`,
 		`DO $$
 		BEGIN
 			IF NOT EXISTS (
@@ -169,7 +173,8 @@ func (r *EventRepository) GetEvents(ctx context.Context, filter domain.EventFilt
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
-			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), ur.status
+			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), ur.status,
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
 		FROM events e
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) FILTER (WHERE status = 'going') AS going_count,
@@ -208,7 +213,8 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
-			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), ur.status
+			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), ur.status,
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
 		FROM events e
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) FILTER (WHERE status = 'going') AS going_count,
@@ -431,11 +437,15 @@ func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
 		var producerID, genre, userRSVP sql.NullString
 		var price sql.NullFloat64
 		var lineup pq.StringArray
+		var ticketTiers []byte
+		var ticketSource, ticketUrl sql.NullString
+		var ticketInfoFetchedAt sql.NullTime
 
 		if err := rows.Scan(
 			&event.ID, &event.Title, &producerID, &event.Date, &event.Location,
 			&event.CinematicBannerURL, &event.Description, &lineup, &genre, &price,
 			&event.IsFeatured, &event.CreatedAt, &event.GoingCount, &event.NotGoingCount, &userRSVP,
+			&ticketTiers, &ticketSource, &ticketUrl, &ticketInfoFetchedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning event: %w", err)
 		}
@@ -453,6 +463,22 @@ func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
 		if userRSVP.Valid {
 			event.UserRSVP = &userRSVP.String
 		}
+		if len(ticketTiers) > 0 {
+			var parsedTiers []domain.TicketTier
+			if err := json.Unmarshal(ticketTiers, &parsedTiers); err == nil {
+				event.TicketTiers = parsedTiers
+			}
+		}
+		if ticketSource.Valid {
+			event.TicketSource = &ticketSource.String
+		}
+		if ticketUrl.Valid {
+			event.TicketURL = &ticketUrl.String
+		}
+		if ticketInfoFetchedAt.Valid {
+			event.TicketInfoFetched = &ticketInfoFetchedAt.Time
+		}
+
 		event.Lineup = lineup
 		events = append(events, event)
 	}
@@ -468,7 +494,8 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
-			0 AS going_count, 0 AS not_going_count, ur.status
+			0 AS going_count, 0 AS not_going_count, ur.status,
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
 		FROM events e
 		JOIN event_rsvps ur ON ur.event_id = e.id
 		WHERE ur.user_id::text = $1 AND ur.status = 'going'
@@ -491,7 +518,8 @@ func (r *EventRepository) GetUserEvents(ctx context.Context, username string) ([
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
-			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), er.status
+			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), er.status,
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
 		FROM events e
 		JOIN event_rsvps er ON e.id = er.event_id
 		JOIN users u ON u.id = er.user_id
@@ -513,11 +541,16 @@ func (r *EventRepository) GetUserEvents(ctx context.Context, username string) ([
 	for rows.Next() {
 		var e domain.Event
 		var lineup []byte
+		var ticketTiers []byte
+		var ticketSource, ticketUrl sql.NullString
+		var ticketInfoFetchedAt sql.NullTime
+
 		if err := rows.Scan(
 			&e.ID, &e.Title, &e.ProducerID, &e.Date, &e.Location,
 			&e.CinematicBannerURL, &e.Description, &lineup,
 			&e.Genre, &e.Price, &e.IsFeatured, &e.CreatedAt,
 			&e.GoingCount, &e.NotGoingCount, &e.UserRSVP,
+			&ticketTiers, &ticketSource, &ticketUrl, &ticketInfoFetchedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -527,8 +560,56 @@ func (r *EventRepository) GetUserEvents(ctx context.Context, username string) ([
 				e.Lineup = parsedLineup
 			}
 		}
+		if len(ticketTiers) > 0 {
+			var parsedTiers []domain.TicketTier
+			if err := json.Unmarshal(ticketTiers, &parsedTiers); err == nil {
+				e.TicketTiers = parsedTiers
+			}
+		}
+		if ticketSource.Valid {
+			e.TicketSource = &ticketSource.String
+		}
+		if ticketUrl.Valid {
+			e.TicketURL = &ticketUrl.String
+		}
+		if ticketInfoFetchedAt.Valid {
+			e.TicketInfoFetched = &ticketInfoFetchedAt.Time
+		}
 		events = append(events, e)
 	}
 
 	return events, nil
+}
+
+func (r *EventRepository) UpdateEventTicketInfo(ctx context.Context, id string, tiers []domain.TicketTier, source *string) error {
+	var tiersJSON []byte
+	var err error
+	if len(tiers) > 0 {
+		tiersJSON, err = json.Marshal(tiers)
+		if err != nil {
+			return fmt.Errorf("marshaling ticket tiers: %w", err)
+		}
+	} else {
+		// If empty, we can store an empty array
+		tiersJSON = []byte("[]")
+	}
+
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE events 
+		SET ticket_tiers = $1, ticket_source = $2, ticket_info_fetched_at = NOW()
+		WHERE id::text = $3
+	`, tiersJSON, source, id)
+	if err != nil {
+		return fmt.Errorf("updating event ticket info: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking affected rows for ticket info update: %w", err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }
