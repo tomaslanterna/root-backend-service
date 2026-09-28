@@ -2,27 +2,39 @@ package domain
 
 import "time"
 
+type TicketTier struct {
+	Name         string  `json:"name"`
+	Price        float64 `json:"price"`
+	Currency     string  `json:"currency"`
+	SoldOut      bool    `json:"soldOut"`
+	FewRemaining bool    `json:"fewRemaining"`
+}
+
 type Event struct {
-	ID                 string    `json:"id"`
-	Title              string    `json:"title"`
-	ProducerID         *string   `json:"producerId,omitempty"`
-	Date               time.Time `json:"date"`
-	Location             string    `json:"location"`
-	Latitude             *float64  `json:"latitude,omitempty"`
-	Longitude            *float64  `json:"longitude,omitempty"`
-	GeofenceRadiusMeters *int      `json:"geofenceRadiusMeters,omitempty"`
-	CinematicBannerURL   string    `json:"cinematicBannerUrl"`
-	Description        string    `json:"description"`
-	Lineup             []string      `json:"lineup"`
-	Artists            []EventArtist `json:"artists,omitempty"`
-	Genre              *string       `json:"genre,omitempty"`
-	Price              *float64  `json:"price,omitempty"`
-	IsFree             bool      `json:"isFree"`
-	IsFeatured         bool      `json:"isFeatured"`
-	GoingCount         int       `json:"goingCount"`
-	NotGoingCount      int       `json:"notGoingCount"`
-	UserRSVP           *string   `json:"userRsvp,omitempty"` // 'going' | 'not_going' | null
-	CreatedAt          time.Time `json:"createdAt"`
+	ID                   string        `json:"id"`
+	Title                string        `json:"title"`
+	ProducerID           *string       `json:"producerId,omitempty"`
+	Date                 time.Time     `json:"date"`
+	Location             string        `json:"location"`
+	Latitude             *float64      `json:"latitude,omitempty"`
+	Longitude            *float64      `json:"longitude,omitempty"`
+	GeofenceRadiusMeters *int          `json:"geofenceRadiusMeters,omitempty"`
+	CinematicBannerURL   string        `json:"cinematicBannerUrl"`
+	Description          string        `json:"description"`
+	Lineup               []string      `json:"lineup"`
+	Artists              []EventArtist `json:"artists,omitempty"`
+	Genre                *string       `json:"genre,omitempty"`
+	Price                *float64      `json:"price,omitempty"`
+	IsFree               bool          `json:"isFree"`
+	IsFeatured           bool          `json:"isFeatured"`
+	GoingCount           int           `json:"goingCount"`
+	NotGoingCount        int           `json:"notGoingCount"`
+	UserRSVP             *string       `json:"userRsvp,omitempty"` // 'going' | 'not_going' | null
+	TicketTiers          []TicketTier  `json:"ticketTiers,omitempty"`
+	TicketSource         *string       `json:"ticketSource,omitempty"`
+	TicketURL            *string       `json:"ticketUrl,omitempty"`
+	TicketInfoFetched    *time.Time    `json:"ticketInfoFetchedAt,omitempty"`
+	CreatedAt            time.Time     `json:"createdAt"`
 }
 
 type Attendee struct {

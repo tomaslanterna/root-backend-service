@@ -90,3 +90,12 @@ type DanceService interface {
 	GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error)
 	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)
 }
+
+type TicketInfoResult struct {
+	Source      *string             `json:"source"`
+	TicketTiers []domain.TicketTier `json:"ticketTiers"`
+}
+
+type AiTicketService interface {
+	FetchEventTickets(ctx context.Context, title, date, location, country, ticketURL string) (*TicketInfoResult, error)
+}

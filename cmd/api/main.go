@@ -16,6 +16,7 @@ import (
 	eventservice "root-backend-service/internal/services/event"
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
+	aiservice "root-backend-service/internal/services/ai"
 	survey "root-backend-service/internal/services/survey"
 	"root-backend-service/internal/services/search"
 
@@ -66,7 +67,9 @@ func main() {
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo)
 	userService := user.NewUserService(userRepo)
-	eventService := eventservice.NewEventService(eventRepo, artistRepo)
+	
+	aiTicketProvider := aiservice.NewGeminiTicketProvider()
+	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider)
 	searchService := search.NewSearchService(userRepo, eventRepo)
 	postService := coreServices.NewPostService(postRepo)
 
