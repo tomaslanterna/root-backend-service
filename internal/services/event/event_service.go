@@ -89,3 +89,7 @@ func (s *EventService) GetPendingSurveys(ctx context.Context, userID string) ([]
 func (s *EventService) GetUserEvents(ctx context.Context, username string) ([]domain.Event, error) {
 	return s.eventRepo.GetUserEvents(ctx, username)
 }
+
+func (s *EventService) GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, error) {
+	return s.eventRepo.GetLiveEventStatus(ctx, userID, lat, lng)
+}

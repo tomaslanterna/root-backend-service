@@ -613,3 +613,48 @@ func (r *EventRepository) UpdateEventTicketInfo(ctx context.Context, id string, 
 
 	return nil
 }
+
+func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, error) {
+	query := `
+		SELECT e.id, e.title, e.producer_id, e.date, e.location,
+			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
+			COALESCE(e.lineup, '{}'), e.genre, e.price,
+			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
+			0 AS going_count, 0 AS not_going_count, er.status,
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+		FROM events e
+		JOIN event_rsvps er ON e.id = er.event_id
+		WHERE er.user_id::text = $1 
+		  AND er.status = 'going'
+		  AND e.latitude IS NOT NULL 
+		  AND e.longitude IS NOT NULL
+		  AND e.date >= NOW() - INTERVAL '12 hours' 
+		  AND e.date <= NOW() + INTERVAL '2 hours'
+		  AND (
+		    6371000 * acos(
+		      cos(radians($2)) * cos(radians(e.latitude)) *
+		      cos(radians(e.longitude) - radians($3)) +
+		      sin(radians($2)) * sin(radians(e.latitude))
+		    )
+		  ) <= COALESCE(e.geofence_radius_meters, 300)
+		ORDER BY e.date ASC
+		LIMIT 1
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, userID, lat, lng)
+	if err != nil {
+		return nil, fmt.Errorf("querying live event: %w", err)
+	}
+	defer rows.Close()
+
+	events, err := scanEvents(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(events) == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	return &events[0], nil
+}
