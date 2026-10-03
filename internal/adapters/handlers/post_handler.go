@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -96,7 +97,7 @@ func (h *PostHandler) GetPostByID(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ID required", http.StatusBadRequest)
 		return
 	}
-	
+
 	var userID string
 	if val := r.Context().Value(UserIDKey); val != nil {
 		userID = val.(string)
@@ -127,7 +128,6 @@ func (h *PostHandler) GetPostByID(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, post)
 }
-
 
 func (h *PostHandler) LikePost(w http.ResponseWriter, r *http.Request) {
 	mockResponse := map[string]interface{}{
@@ -230,11 +230,105 @@ func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.postService.CreatePost(r.Context(), post); err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		if errors.Is(err, domain.ErrCommunityForbidden) {
+			respondWithError(w, http.StatusForbidden, "No tenés permiso para publicar en esta comunidad")
+		} else if errors.Is(err, domain.ErrCommunityNotFound) {
+			respondWithError(w, http.StatusNotFound, "Comunidad no encontrada")
+		} else {
+			respondWithError(w, http.StatusBadRequest, err.Error())
+		}
 		return
 	}
 
 	respondWithJSON(w, http.StatusCreated, post)
+}
+
+func (h *PostHandler) GetCommunityAnnouncements(w http.ResponseWriter, r *http.Request) {
+	limit, offset, err := parseCommunityPagination(r, 10)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	posts, total, err := h.postService.GetCommunityAnnouncements(r.Context(), chi.URLParam(r, "id"), limit, offset)
+	if err != nil {
+		if errors.Is(err, domain.ErrCommunityNotFound) {
+			respondWithError(w, http.StatusNotFound, "Comunidad no encontrada")
+		} else {
+			respondWithError(w, http.StatusInternalServerError, "No se pudieron obtener los anuncios")
+		}
+		return
+	}
+	for index := range posts {
+		h.signPostMedia(r, &posts[index])
+	}
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"data": posts,
+		"meta": map[string]interface{}{
+			"total": total, "limit": limit, "offset": offset,
+			"hasMore": offset+len(posts) < total,
+		},
+	})
+}
+
+func (h *PostHandler) CreateCommunityAnnouncement(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "Usuario no autenticado")
+		return
+	}
+	var request struct {
+		Title          string `json:"title"`
+		Content        string `json:"content"`
+		LongContent    string `json:"longContent"`
+		HeaderImageURL string `json:"headerImageUrl"`
+		EventID        string `json:"eventId"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16384)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Cuerpo de solicitud inválido")
+		return
+	}
+	post := &domain.Post{
+		Title:          strPtr(request.Title),
+		Content:        request.Content,
+		LongContent:    strPtr(request.LongContent),
+		HeaderImageURL: strPtr(request.HeaderImageURL),
+		EventID:        strPtr(request.EventID),
+	}
+	created, err := h.postService.CreateCommunityAnnouncement(r.Context(), chi.URLParam(r, "id"), userID, post)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrCommunityNotFound):
+			respondWithError(w, http.StatusNotFound, "Comunidad no encontrada")
+		case errors.Is(err, domain.ErrCommunityForbidden):
+			respondWithError(w, http.StatusForbidden, "No tenés permiso para publicar en esta comunidad")
+		case strings.Contains(err.Error(), "cannot exceed"), strings.Contains(err.Error(), "must have"):
+			respondWithError(w, http.StatusBadRequest, err.Error())
+		default:
+			respondWithError(w, http.StatusInternalServerError, "No se pudo crear el anuncio")
+		}
+		return
+	}
+	h.signPostMedia(r, created)
+	respondWithJSON(w, http.StatusCreated, created)
+}
+
+func (h *PostHandler) signPostMedia(r *http.Request, post *domain.Post) {
+	if h.s3Service == nil {
+		return
+	}
+	if post.HeaderImageURL != nil && *post.HeaderImageURL != "" && !strings.HasPrefix(*post.HeaderImageURL, "http") {
+		if url, err := h.s3Service.GenerateViewUrl(r.Context(), *post.HeaderImageURL, 7*24*time.Hour); err == nil {
+			post.HeaderImageURL = &url
+		}
+	}
+	if post.AuthorAvatar != "" && !strings.HasPrefix(post.AuthorAvatar, "http") {
+		if url, err := h.s3Service.GenerateViewUrl(r.Context(), post.AuthorAvatar, 7*24*time.Hour); err == nil {
+			post.AuthorAvatar = url
+		}
+	}
 }
 
 func strPtr(s string) *string {

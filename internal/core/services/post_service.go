@@ -3,18 +3,21 @@ package services
 import (
 	"context"
 	"errors"
-	"sync"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
+	"strings"
+	"sync"
 )
 
 type postService struct {
-	postRepo ports.PostRepository
+	postRepo      ports.PostRepository
+	communityRepo ports.CommunityRepository
 }
 
-func NewPostService(repo ports.PostRepository) ports.PostService {
+func NewPostService(repo ports.PostRepository, communityRepo ports.CommunityRepository) ports.PostService {
 	return &postService{
-		postRepo: repo,
+		postRepo:      repo,
+		communityRepo: communityRepo,
 	}
 }
 
@@ -27,7 +30,7 @@ func (s *postService) GetFeeds(ctx context.Context, userID string, includeFeeds 
 
 	for _, feed := range includeFeeds {
 		feedType := feed // capture loop variable
-		
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -43,7 +46,7 @@ func (s *postService) GetFeeds(ctx context.Context, userID string, includeFeeds 
 				limit = 20
 			}
 			offset := (page - 1) * limit
-			
+
 			// Request limit + 1 to check if there is a next page
 			fetchLimit := limit + 1
 
@@ -115,8 +118,75 @@ func (s *postService) CreatePostComment(ctx context.Context, postID, authorID, c
 }
 
 func (s *postService) CreatePost(ctx context.Context, post *domain.Post) error {
+	if post.CommunityID != nil && strings.TrimSpace(*post.CommunityID) != "" {
+		community, err := s.communityRepo.GetCommunityByIDOrSlug(ctx, *post.CommunityID, post.AuthorID)
+		if err != nil {
+			return err
+		}
+		if !community.CanPublish {
+			return domain.ErrCommunityForbidden
+		}
+		post.CommunityID = &community.ID
+	}
+	post.Content = strings.TrimSpace(post.Content)
+	if post.Title != nil {
+		title := strings.TrimSpace(*post.Title)
+		post.Title = &title
+	}
 	if (post.Title == nil || *post.Title == "") && post.Content == "" {
 		return errors.New("post must have a title or content")
 	}
 	return s.postRepo.CreatePost(ctx, post)
+}
+
+func (s *postService) GetCommunityAnnouncements(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		return nil, 0, errors.New("offset must be non-negative")
+	}
+	community, err := s.communityRepo.GetCommunityByIDOrSlug(ctx, strings.TrimSpace(communityID), "")
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.postRepo.GetCommunityPosts(ctx, community.ID, limit, offset)
+}
+
+func (s *postService) CreateCommunityAnnouncement(ctx context.Context, communityID, authorID string, post *domain.Post) (*domain.Post, error) {
+	community, err := s.communityRepo.GetCommunityByIDOrSlug(ctx, strings.TrimSpace(communityID), authorID)
+	if err != nil {
+		return nil, err
+	}
+	if !community.CanPublish {
+		return nil, domain.ErrCommunityForbidden
+	}
+
+	post.AuthorID = authorID
+	post.CommunityID = &community.ID
+	post.Content = strings.TrimSpace(post.Content)
+	if post.Title != nil {
+		title := strings.TrimSpace(*post.Title)
+		post.Title = &title
+		if len([]rune(title)) > 120 {
+			return nil, errors.New("announcement title cannot exceed 120 characters")
+		}
+	}
+	if (post.Title == nil || *post.Title == "") && post.Content == "" {
+		return nil, errors.New("announcement must have a title or content")
+	}
+	if len([]rune(post.Content)) > 2000 {
+		return nil, errors.New("announcement content cannot exceed 2000 characters")
+	}
+	if err := s.postRepo.CreatePost(ctx, post); err != nil {
+		return nil, err
+	}
+	created, err := s.postRepo.GetPostByID(ctx, post.ID)
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
 }

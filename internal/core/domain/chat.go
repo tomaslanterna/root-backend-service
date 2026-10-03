@@ -16,6 +16,10 @@ type Chat struct {
 	LastMessage string    `json:"last_message"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	UnreadCount int       `json:"unread_count"`
+	SquadID     string    `json:"squad_id,omitempty"`
+	Name        string    `json:"name,omitempty"`
+	EventID     string    `json:"event_id,omitempty"`
 
 	Participants []User `json:"participants,omitempty"`
 }

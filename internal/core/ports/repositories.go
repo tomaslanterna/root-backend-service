@@ -34,8 +34,11 @@ type ChatRepository interface {
 }
 
 type MessageRepository interface {
+	InitSchema(ctx context.Context) error
 	CreateMessage(ctx context.Context, msg *domain.Message) error
-	GetMessagesByChatID(ctx context.Context, chatID string, afterTimestamp string) ([]domain.Message, error)
+	GetMessagesByChatID(ctx context.Context, chatID, afterTimestamp, currentUserID string) ([]domain.Message, error)
+	MarkMessagesRead(ctx context.Context, chatID, currentUserID string) error
+	AcknowledgeMessages(ctx context.Context, chatID, userID string, messageIDs []string, read bool) error
 }
 
 type TransferRepository interface {
@@ -71,19 +74,23 @@ type PostRepository interface {
 	GetFeaturedPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
 	GetFollowingPosts(ctx context.Context, userID string, limit, offset int) ([]domain.Post, error)
 	GetPostByID(ctx context.Context, id string) (*domain.Post, error)
+	GetCommunityPosts(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error)
 	CreatePost(ctx context.Context, post *domain.Post) error
-	
+
 	// Comments
 	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
 }
 
-
 type CommunityRepository interface {
-	GetCommunitiesByCountry(ctx context.Context, countryID string, currentUserID string, limit, offset int) ([]domain.Community, error)
-	GetCommunityByID(ctx context.Context, id string, currentUserID string) (*domain.Community, error)
-	ToggleJoinCommunity(ctx context.Context, communityID, userID string) (isMember bool, membersCount int, err error)
-	GetUserCommunities(ctx context.Context, username string) ([]domain.Community, error)
+	InitSchema(ctx context.Context) error
+	GetCommunities(ctx context.Context, filter domain.CommunityFilter, currentUserID string) ([]domain.Community, int, error)
+	GetCommunityByIDOrSlug(ctx context.Context, identifier string, currentUserID string) (*domain.Community, error)
+	JoinCommunity(ctx context.Context, communityID, userID string) (membersCount int, err error)
+	LeaveCommunity(ctx context.Context, communityID, userID string) (membersCount int, err error)
+	GetUserCommunities(ctx context.Context, username, currentUserID string) ([]domain.Community, error)
+	GetCurrentUserCommunities(ctx context.Context, userID string) ([]domain.Community, error)
+	CanPublish(ctx context.Context, communityID, userID string) (exists bool, allowed bool, err error)
 }
 
 type DanceRepository interface {

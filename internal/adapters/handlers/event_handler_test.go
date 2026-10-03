@@ -56,6 +56,14 @@ func (s *eventServiceStub) CreateEventComment(_ context.Context, eventID, userID
 	return &domain.EventComment{ID: "comment-1", TargetID: eventID, AuthorID: userID, Content: content}, nil
 }
 
+func (s *eventServiceStub) GetPendingSurveys(context.Context, string) ([]domain.Event, error) {
+	return []domain.Event{}, nil
+}
+
+func (s *eventServiceStub) GetUserEvents(context.Context, string) ([]domain.Event, error) {
+	return []domain.Event{}, nil
+}
+
 func requestWithRouteAndUser(request *http.Request, eventID, userID string) *http.Request {
 	routeContext := chi.NewRouteContext()
 	routeContext.URLParams.Add("id", eventID)

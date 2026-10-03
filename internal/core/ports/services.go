@@ -2,8 +2,8 @@ package ports
 
 import (
 	"context"
-	"time"
 	"root-backend-service/internal/core/domain"
+	"time"
 )
 
 type AuthService interface {
@@ -25,7 +25,9 @@ type SearchService interface {
 
 type ChatService interface {
 	GetMessages(ctx context.Context, chatID string, afterTimestamp string, currentUserID string) ([]domain.Message, error)
-	SendMessage(ctx context.Context, chatID, currentUserID, content string, msgType domain.MessageType) (*domain.Message, error)
+	SendMessage(ctx context.Context, chatID, currentUserID, content string, msgType domain.MessageType, clientID ...string) (*domain.Message, error)
+	AcknowledgeMessages(ctx context.Context, chatID, userID string, messageIDs []string, read bool) error
+	MarkMessagesRead(ctx context.Context, chatID, currentUserID string) error
 	GetUserChats(ctx context.Context, userID string) ([]domain.Chat, error)
 	GetOrCreateDirectChat(ctx context.Context, currentUserID, targetUserID string) (*domain.Chat, error)
 	GetChatByID(ctx context.Context, chatID, currentUserID string) (*domain.Chat, error)
@@ -62,15 +64,19 @@ type PostService interface {
 	GetFeeds(ctx context.Context, userID string, includeFeeds []string, pagination map[string]int) (map[string]FeedData, error)
 	GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error)
 	CreatePost(ctx context.Context, post *domain.Post) error
+	GetCommunityAnnouncements(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error)
+	CreateCommunityAnnouncement(ctx context.Context, communityID, authorID string, post *domain.Post) (*domain.Post, error)
 	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
 }
 
 type CommunityService interface {
-	GetCommunitiesByCountry(ctx context.Context, countryID string, currentUserID string, limit, offset int) ([]domain.Community, error)
-	GetCommunityByID(ctx context.Context, id string, currentUserID string) (*domain.Community, error)
-	ToggleJoinCommunity(ctx context.Context, communityID, userID string) (isMember bool, membersCount int, err error)
-	GetUserCommunities(ctx context.Context, username string) ([]domain.Community, error)
+	GetCommunities(ctx context.Context, filter domain.CommunityFilter, currentUserID string) ([]domain.Community, int, error)
+	GetCommunity(ctx context.Context, identifier string, currentUserID string) (*domain.Community, error)
+	JoinCommunity(ctx context.Context, communityID, userID string) (membersCount int, err error)
+	LeaveCommunity(ctx context.Context, communityID, userID string) (membersCount int, err error)
+	GetUserCommunities(ctx context.Context, username, currentUserID string) ([]domain.Community, error)
+	GetCurrentUserCommunities(ctx context.Context, userID string) ([]domain.Community, error)
 }
 
 type SyncDanceRequest struct {
