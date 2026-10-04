@@ -24,6 +24,7 @@ type RouterConfig struct {
 	MatchHandler     *MatchHandler
 	DanceHandler     *DanceHandler
 	ChatRealtime     *ChatRealtime
+	PushHandler      *PushHandler
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -52,6 +53,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	})
 
 	r.Route("/v1", func(r chi.Router) {
+		if cfg.PushHandler != nil {
+			r.With(AuthMiddleware).Get("/push/status", cfg.PushHandler.Status)
+			r.With(AuthMiddleware).Put("/push/devices/{id}", cfg.PushHandler.Register)
+			r.With(AuthMiddleware).Delete("/push/devices/{id}", cfg.PushHandler.Remove)
+		}
 		if cfg.ChatRealtime != nil {
 			r.Get("/chats/ws", cfg.ChatRealtime.ServeHTTP)
 		}

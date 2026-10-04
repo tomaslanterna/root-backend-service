@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"root-backend-service/internal/adapters/handlers"
+	pushadapter "root-backend-service/internal/adapters/push"
 	"root-backend-service/internal/adapters/repository/postgres"
+	"root-backend-service/internal/core/ports"
 	aiservice "root-backend-service/internal/services/ai"
 	"root-backend-service/internal/services/auth"
 	"root-backend-service/internal/services/community"
@@ -41,12 +43,15 @@ func main() {
 		log.Fatalf("❌ Error conectando a PostgreSQL: %v", err)
 	}
 	defer db.Close()
+	pushCtx, stopPush := context.WithCancel(context.Background())
+	defer stopPush()
 
 	// 2. Inicializar repositorios de la base de datos
 	kycRepo := postgres.NewKycRepository(db)
 	userRepo := postgres.NewUserRepository(db)
 	chatRepo := postgres.NewChatRepository(db)
 	messageRepo := postgres.NewMessageRepository(db)
+	pushRepo := postgres.NewPushRepository(db)
 	transferRepo := postgres.NewTransferRepository(db)
 	eventRepo := postgres.NewEventRepository(db)
 	postRepo := postgres.NewPostRepository(db)
@@ -59,6 +64,45 @@ func main() {
 	if err := messageRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize the required message schema: %v", err)
 	}
+	if err := pushRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize push schema: %v", err)
+	}
+	var pushSender ports.PushSender
+	if os.Getenv("PUSH_ENABLED") == "true" {
+		sender, err := pushadapter.NewFCM(pushCtx, os.Getenv("FIREBASE_PROJECT_ID"))
+		if err != nil {
+			log.Fatalf("Could not configure push notifications: %v", err)
+		}
+		pushSender = sender
+	} else {
+		log.Println("Android push disabled; configure Firebase and PUSH_ENABLED=true to enable")
+	}
+	pushService := coreServices.NewPushService(pushRepo, pushSender)
+	pushDone := make(chan struct{})
+	go func() {
+		defer close(pushDone)
+		if !pushService.Enabled() {
+			return
+		}
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		pruneTicker := time.NewTicker(time.Hour)
+		defer pruneTicker.Stop()
+		for {
+			select {
+			case <-pushCtx.Done():
+				return
+			case <-ticker.C:
+				if err := pushService.ProcessPending(pushCtx); err != nil && pushCtx.Err() == nil {
+					log.Printf("push worker: %v", err)
+				}
+			case <-pruneTicker.C:
+				if err := pushRepo.Prune(pushCtx); err != nil && pushCtx.Err() == nil {
+					log.Printf("push cleanup: %v", err)
+				}
+			}
+		}
+	}()
 	if err := matchRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize matcher chat indexes: %v", err)
 	}
@@ -141,6 +185,7 @@ func main() {
 		SearchHandler:    searchHandler,
 		ChatHandler:      chatHandler,
 		ChatRealtime:     chatRealtime,
+		PushHandler:      handlers.NewPushHandler(pushService),
 		TransferHandler:  transferHandler,
 		SurveyHandler:    surveyHandler,
 		AIHandler:        aiHandler,
@@ -174,6 +219,8 @@ func main() {
 	}()
 
 	<-stop
+	stopPush()
+	<-pushDone
 	chatRealtime.Close()
 	log.Println("🛑 Apagando el servidor gradualmente...")
 
