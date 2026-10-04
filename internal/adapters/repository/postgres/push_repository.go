@@ -91,8 +91,11 @@ func (r *PushRepository) ClaimJobs(ctx context.Context) ([]domain.PushJob, error
  SELECT id FROM push_jobs WHERE NOT done AND attempts<5 AND available_at<=NOW()
  AND created_at>NOW()-INTERVAL '24 hours' ORDER BY available_at,id LIMIT 10 FOR UPDATE SKIP LOCKED
  ) UPDATE push_jobs j SET attempts=attempts+1,available_at=NOW()+INTERVAL '2 minutes'
- FROM next,messages m WHERE j.id=next.id AND m.id=j.message_id
- RETURNING j.id,j.attempts,j.device_id,j.user_id,j.token,j.message_id,m.chat_id`)
+ FROM next,messages m LEFT JOIN users sender ON sender.id=m.sender_id
+ WHERE j.id=next.id AND m.id=j.message_id
+ RETURNING j.id,j.attempts,j.device_id,j.user_id,j.token,j.message_id,m.chat_id,
+ LEFT(COALESCE(NULLIF(TRIM(sender.name),''),NULLIF(TRIM(sender.username),''),'Nuevo mensaje'),81),
+ CASE WHEN m.type='text' THEN LEFT(COALESCE(m.content,''),241) ELSE '' END,COALESCE(m.type,'')`)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +103,8 @@ func (r *PushRepository) ClaimJobs(ctx context.Context) ([]domain.PushJob, error
 	jobs := make([]domain.PushJob, 0)
 	for rows.Next() {
 		var job domain.PushJob
-		if err := rows.Scan(&job.ID, &job.Attempt, &job.DeviceID, &job.UserID, &job.Token, &job.MessageID, &job.ChatID); err != nil {
+		if err := rows.Scan(&job.ID, &job.Attempt, &job.DeviceID, &job.UserID, &job.Token, &job.MessageID, &job.ChatID,
+			&job.SenderName, &job.Content, &job.MessageType); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, job)

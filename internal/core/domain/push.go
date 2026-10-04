@@ -8,4 +8,6 @@ type PushJob struct {
 	ID                                         int64
 	Attempt                                    int
 	DeviceID, UserID, Token, MessageID, ChatID string
+	SenderName, Content                        string
+	MessageType                                MessageType
 }

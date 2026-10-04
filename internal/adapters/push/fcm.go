@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"root-backend-service/internal/core/domain"
+	"strings"
 	"time"
 )
 
@@ -37,13 +38,36 @@ func NewFCM(ctx context.Context, project string) (*FCM, error) {
 	return &FCM{client: client, endpoint: "https://fcm.googleapis.com/v1/projects/" + url.PathEscape(project) + "/messages:send"}, nil
 }
 
+// Previews are bounded by Unicode characters to keep the FCM payload small without
+// breaking accents or emoji. Android's lock-screen settings control their visibility.
+func notificationPreview(value, fallback string, limit int) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if value == "" {
+		return fallback
+	}
+	runes := []rune(value)
+	if len(runes) > limit {
+		return string(runes[:limit]) + "…"
+	}
+	return value
+}
+
 func (f *FCM) Send(ctx context.Context, job domain.PushJob) error {
-	// Generic body intentionally avoids exposing private message text on a lock screen.
+	title := notificationPreview(job.SenderName, "Nuevo mensaje", 80)
+	bodyText := "Tenés un mensaje nuevo."
+	switch job.MessageType {
+	case domain.MessageTypeText:
+		bodyText = notificationPreview(job.Content, bodyText, 240)
+	case domain.MessageTypeImage:
+		// Do not expose private image URLs in notifications.
+		bodyText = "📷 Envió una foto"
+	}
 	payload := map[string]any{"message": map[string]any{
-		"token":        job.Token,
-		"notification": map[string]string{"title": "Nuevo mensaje en root", "body": "Tenés un mensaje nuevo. Tocá para abrir el chat."},
-		"data":         map[string]string{"type": "chat.message", "chat_id": job.ChatID, "message_id": job.MessageID, "recipient_id": job.UserID},
-		"android":      map[string]any{"priority": "HIGH", "ttl": "86400s", "notification": map[string]string{"channel_id": "root_messages", "tag": job.ChatID, "sound": "default"}},
+		"token": job.Token,
+		// The native Android service renders the bundled Root logo even in the
+		// background. A notification payload would bypass that service in FCM.
+		"data":    map[string]string{"type": "chat.message", "chat_id": job.ChatID, "message_id": job.MessageID, "recipient_id": job.UserID, "title": title, "body": bodyText},
+		"android": map[string]any{"priority": "HIGH", "ttl": "86400s"},
 	}}
 	body, err := json.Marshal(payload)
 	if err != nil {

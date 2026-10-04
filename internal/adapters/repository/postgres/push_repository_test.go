@@ -68,7 +68,7 @@ func TestPushPostgresIntegration(t *testing.T) {
 		t.Fatalf("refusing to run fixtures outside the isolated schema: %q (%v)", actualSchema, err)
 	}
 	ddl := []string{
-		`CREATE TABLE users(id UUID PRIMARY KEY)`,
+		`CREATE TABLE users(id UUID PRIMARY KEY,name TEXT,username TEXT)`,
 		`CREATE TABLE messages(id UUID PRIMARY KEY,chat_id UUID NOT NULL,sender_id UUID NOT NULL,content TEXT,type TEXT)`,
 		`CREATE TABLE chat_participants(chat_id UUID,user_id UUID,PRIMARY KEY(chat_id,user_id))`,
 		`CREATE TABLE message_receipts(message_id UUID,user_id UUID,read_at TIMESTAMPTZ)`,
@@ -87,7 +87,7 @@ func TestPushPostgresIntegration(t *testing.T) {
 	}
 	a, b, outsider, chat := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	for _, user := range []string{a, b, outsider} {
-		if _, err := db.ExecContext(ctx, `INSERT INTO users VALUES($1)`, user); err != nil {
+		if _, err := db.ExecContext(ctx, `INSERT INTO users(id,name,username) VALUES($1,'Emisor de prueba','testuser')`, user); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -167,6 +167,35 @@ func TestPushPostgresIntegration(t *testing.T) {
 		t.Fatalf("expected only recipient device, got %d", len(jobs))
 	}
 	job := jobs[0]
+	if job.SenderName != "Emisor de prueba" || job.Content != "private content" || job.MessageType != domain.MessageTypeText {
+		t.Fatal("claimed job must include the sender and message preview")
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE users SET name=' ',username='sender_alias' WHERE id=$1`, a); err != nil {
+		t.Fatal(err)
+	}
+	for _, preview := range []struct{ content, kind string }{
+		{strings.Repeat("🎉", 300), "text"},
+		{"https://private.example/photo", "image"},
+	} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO messages VALUES($1,$2,$3,$4,$5)`, uuid.NewString(), chat, a, preview.content, preview.kind); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previews, err := r.ClaimJobs(ctx)
+	if err != nil || len(previews) != 2 {
+		t.Fatalf("expected text and photo preview jobs: %d %v", len(previews), err)
+	}
+	for _, preview := range previews {
+		if preview.SenderName != "sender_alias" {
+			t.Fatal("blank display name must fall back to username")
+		}
+		if preview.MessageType == domain.MessageTypeText && preview.Content != strings.Repeat("🎉", 241) {
+			t.Fatal("SQL must bound text previews without breaking Unicode")
+		}
+		if preview.MessageType == domain.MessageTypeImage && preview.Content != "" {
+			t.Fatal("SQL must not fetch private image URLs for push previews")
+		}
+	}
 	if allowed, err := r.CanSend(ctx, job); err != nil || !allowed {
 		t.Fatalf("eligible: %v %v", allowed, err)
 	}
