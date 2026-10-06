@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/lib/pq"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 )
@@ -29,13 +30,15 @@ func (r *chatRepository) CreateChat(ctx context.Context, chat *domain.Chat) erro
 
 func (r *chatRepository) GetChatByID(ctx context.Context, id string) (*domain.Chat, error) {
 	query := `
-		SELECT id, type, last_message, created_at, updated_at
-		FROM chats
-		WHERE id = $1
+		SELECT c.id, c.type, c.last_message, c.created_at, c.updated_at,
+		 COALESCE(s.id::text,''),COALESCE(s.name,''),COALESCE(s.event_id::text,'')
+		FROM chats c LEFT JOIN LATERAL(SELECT id,name,event_id FROM squads WHERE chat_room_id=c.id ORDER BY id LIMIT 1) s ON true
+		WHERE c.id = $1
 	`
 	var chat domain.Chat
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&chat.ID, &chat.Type, &chat.LastMessage, &chat.CreatedAt, &chat.UpdatedAt,
+		&chat.SquadID, &chat.Name, &chat.EventID,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -43,7 +46,7 @@ func (r *chatRepository) GetChatByID(ctx context.Context, id string) (*domain.Ch
 		}
 		return nil, err
 	}
-	
+
 	participants, err := r.getChatParticipants(ctx, chat.ID)
 	if err == nil {
 		chat.Participants = participants
@@ -52,7 +55,7 @@ func (r *chatRepository) GetChatByID(ctx context.Context, id string) (*domain.Ch
 		// log.Printf("ERROR getting participants for chat %s: %v", chat.ID, err)
 		return nil, err // Return the error so it doesn't silently fail and cause authorization issues
 	}
-	
+
 	return &chat, nil
 }
 
@@ -80,8 +83,12 @@ func (r *chatRepository) AddParticipant(ctx context.Context, participant *domain
 
 func (r *chatRepository) GetUserChats(ctx context.Context, userID string) ([]domain.Chat, error) {
 	query := `
-		SELECT c.id, c.type, c.last_message, c.created_at, c.updated_at
+		SELECT c.id, c.type, c.last_message, c.created_at, c.updated_at,
+		(SELECT COUNT(*) FROM messages m LEFT JOIN message_receipts mr ON mr.message_id=m.id AND mr.user_id=$1
+		 WHERE m.chat_id=c.id AND m.sender_id<>$1 AND mr.read_at IS NULL),
+		 COALESCE(s.id::text,''),COALESCE(s.name,''),COALESCE(s.event_id::text,'')
 		FROM chats c
+		LEFT JOIN LATERAL(SELECT id,name,event_id FROM squads WHERE chat_room_id=c.id ORDER BY id LIMIT 1) s ON true
 		JOIN chat_participants cp ON c.id = cp.chat_id
 		WHERE cp.user_id = $1
 		ORDER BY c.updated_at DESC
@@ -92,20 +99,48 @@ func (r *chatRepository) GetUserChats(ctx context.Context, userID string) ([]dom
 	}
 	defer rows.Close()
 
-	var chats []domain.Chat
+	chats := make([]domain.Chat, 0)
+	ids := make([]string, 0)
 	for rows.Next() {
 		var chat domain.Chat
-		if err := rows.Scan(&chat.ID, &chat.Type, &chat.LastMessage, &chat.CreatedAt, &chat.UpdatedAt); err != nil {
+		if err := rows.Scan(&chat.ID, &chat.Type, &chat.LastMessage, &chat.CreatedAt, &chat.UpdatedAt, &chat.UnreadCount, &chat.SquadID, &chat.Name, &chat.EventID); err != nil {
 			return nil, err
 		}
-		
-		// Get participants for each chat
-		participants, err := r.getChatParticipants(ctx, chat.ID)
-		if err == nil {
-			chat.Participants = participants
-		}
-		
+
 		chats = append(chats, chat)
+		ids = append(ids, chat.ID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return chats, nil
+	}
+	participants, err := r.db.QueryContext(ctx, `SELECT cp.chat_id,u.id,u.name,u.username,u.avatar_url
+	 FROM chat_participants cp JOIN users u ON u.id=cp.user_id WHERE cp.chat_id=ANY($1::uuid[])`, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer participants.Close()
+	byChat := make(map[string][]domain.User)
+	for participants.Next() {
+		var chatID string
+		var user domain.User
+		var avatar sql.NullString
+		if err := participants.Scan(&chatID, &user.ID, &user.Name, &user.Username, &avatar); err != nil {
+			return nil, err
+		}
+		if avatar.Valid {
+			user.AvatarURL = &avatar.String
+		}
+		byChat[chatID] = append(byChat[chatID], user)
+	}
+	if err := participants.Err(); err != nil {
+		return nil, err
+	}
+	for i := range chats {
+		chats[i].Participants = byChat[chats[i].ID]
 	}
 	return chats, nil
 }
@@ -129,12 +164,12 @@ func (r *chatRepository) GetDirectChatBetweenUsers(ctx context.Context, user1ID,
 		}
 		return nil, err
 	}
-	
+
 	participants, err := r.getChatParticipants(ctx, chat.ID)
 	if err == nil {
 		chat.Participants = participants
 	}
-	
+
 	return &chat, nil
 }
 

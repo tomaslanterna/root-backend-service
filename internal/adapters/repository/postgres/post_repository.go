@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 )
@@ -153,6 +154,45 @@ func (r *postRepository) GetPostByID(ctx context.Context, id string) (*domain.Po
 	p.Tags = []string{}
 	p.LikesCount = 0 // Temporal hardcode
 	return &p, nil
+}
+
+func (r *postRepository) GetCommunityPosts(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error) {
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM posts WHERE community_id::text = $1`, communityID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count community announcements: %w", err)
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT p.id, p.author_id, p.event_id, p.community_id, p.title, p.content,
+			p.long_content, p.header_image_url, p.timestamp, p.is_featured,
+			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
+		FROM posts p
+		LEFT JOIN users u ON p.author_id = u.id
+		WHERE p.community_id::text = $1
+		ORDER BY p.timestamp DESC, p.id DESC
+		LIMIT $2 OFFSET $3`, communityID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list community announcements: %w", err)
+	}
+	defer rows.Close()
+
+	posts := make([]domain.Post, 0)
+	for rows.Next() {
+		var post domain.Post
+		if err := rows.Scan(
+			&post.ID, &post.AuthorID, &post.EventID, &post.CommunityID, &post.Title,
+			&post.Content, &post.LongContent, &post.HeaderImageURL, &post.Timestamp,
+			&post.IsFeatured, &post.AuthorName, &post.AuthorAvatar, &post.IsVerified,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan community announcement: %w", err)
+		}
+		post.Tags = []string{}
+		posts = append(posts, post)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterate community announcements: %w", err)
+	}
+	return posts, total, nil
 }
 
 func (r *postRepository) GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error) {

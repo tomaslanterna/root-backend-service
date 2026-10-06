@@ -73,8 +73,8 @@ func (c *eventTestConn) QueryContext(_ context.Context, query string, _ []driver
 		return newEventTestRows([]string{"going", "not_going"}, []driver.Value{int64(8), int64(3)}), nil
 	case strings.HasPrefix(normalized, "SELECT e.id, e.title"):
 		return newEventTestRows(
-			[]string{"id", "title", "producer_id", "date", "location", "banner", "description", "lineup", "genre", "price", "featured", "created_at", "going", "not_going", "user_rsvp"},
-			[]driver.Value{"event-1", "Fiesta", nil, now, "Montevideo", "https://image", "Descripción", "{DJ}", "Electrónica", float64(1200), true, now, int64(8), int64(3), "going"},
+			[]string{"id", "title", "producer_id", "date", "location", "banner", "description", "lineup", "genre", "price", "featured", "created_at", "going", "not_going", "user_rsvp", "ticket_tiers", "ticket_source", "ticket_url", "ticket_info_fetched_at"},
+			[]driver.Value{"event-1", "Fiesta", nil, now, "Montevideo", "https://image", "Descripción", "{DJ}", "Electrónica", float64(1200), true, now, int64(8), int64(3), "going", []byte("[]"), nil, nil, nil},
 		), nil
 	case strings.HasPrefix(normalized, "SELECT u.id, u.name"):
 		return newEventTestRows(

@@ -303,25 +303,33 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:8080/v1/communities",
+              "raw": "http://localhost:8080/v1/communities?country=UY&category=&department=&query=&limit=12&offset=0",
               "protocol": "http",
               "host": ["localhost"],
               "port": "8080",
-              "path": ["v1", "communities"]
+              "path": ["v1", "communities"],
+              "query": [
+                {"key": "country", "value": "UY"},
+                {"key": "category", "value": "", "disabled": true},
+                {"key": "department", "value": "", "disabled": true},
+                {"key": "query", "value": "", "disabled": true},
+                {"key": "limit", "value": "12"},
+                {"key": "offset", "value": "0"}
+              ]
             }
           }
         },
         {
-          "name": "Get Community By ID",
+          "name": "Get Community By ID or Slug",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:8080/v1/communities/c1",
+              "raw": "http://localhost:8080/v1/communities/electronica",
               "protocol": "http",
               "host": ["localhost"],
               "port": "8080",
-              "path": ["v1", "communities", "c1"]
+              "path": ["v1", "communities", "electronica"]
             }
           }
         },
@@ -329,17 +337,57 @@
           "name": "Join Community",
           "request": {
             "method": "POST",
-            "header": [{"key": "Content-Type", "value": "application/json"}],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"action\": \"join\"\n}"
-            },
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}],
             "url": {
-              "raw": "http://localhost:8080/v1/communities/c1/join",
+              "raw": "http://localhost:8080/v1/communities/electronica/join",
               "protocol": "http",
               "host": ["localhost"],
               "port": "8080",
-              "path": ["v1", "communities", "c1", "join"]
+              "path": ["v1", "communities", "electronica", "join"]
+            }
+          }
+        },
+        {
+          "name": "Leave Community",
+          "request": {
+            "method": "DELETE",
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}],
+            "url": {
+              "raw": "http://localhost:8080/v1/communities/electronica/membership",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "communities", "electronica", "membership"]
+            }
+          }
+        },
+        {
+          "name": "Get Community Announcements",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/v1/communities/electronica/announcements?limit=10&offset=0",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "communities", "electronica", "announcements"],
+              "query": [{"key": "limit", "value": "10"}, {"key": "offset", "value": "0"}]
+            }
+          }
+        },
+        {
+          "name": "Create Community Announcement",
+          "request": {
+            "method": "POST",
+            "header": [{"key": "Authorization", "value": "Bearer {{jwt}}"}, {"key": "Content-Type", "value": "application/json"}],
+            "body": {"mode": "raw", "raw": "{\n  \"title\": \"Nueva fecha\",\n  \"content\": \"Anuncio oficial de la comunidad\",\n  \"eventId\": \"\"\n}"},
+            "url": {
+              "raw": "http://localhost:8080/v1/communities/electronica/announcements",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["v1", "communities", "electronica", "announcements"]
             }
           }
         }

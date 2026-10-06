@@ -4,21 +4,25 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"root-backend-service/internal/adapters/handlers"
+	pushadapter "root-backend-service/internal/adapters/push"
 	"root-backend-service/internal/adapters/repository/postgres"
+	"root-backend-service/internal/core/ports"
+	aiservice "root-backend-service/internal/services/ai"
 	"root-backend-service/internal/services/auth"
 	"root-backend-service/internal/services/community"
 	eventservice "root-backend-service/internal/services/event"
 	kycservice "root-backend-service/internal/services/kyc"
 	s3service "root-backend-service/internal/services/s3"
-	aiservice "root-backend-service/internal/services/ai"
-	survey "root-backend-service/internal/services/survey"
 	"root-backend-service/internal/services/search"
+	survey "root-backend-service/internal/services/survey"
 
 	coreServices "root-backend-service/internal/core/services"
 	"root-backend-service/internal/services/user"
@@ -39,12 +43,15 @@ func main() {
 		log.Fatalf("❌ Error conectando a PostgreSQL: %v", err)
 	}
 	defer db.Close()
+	pushCtx, stopPush := context.WithCancel(context.Background())
+	defer stopPush()
 
 	// 2. Inicializar repositorios de la base de datos
 	kycRepo := postgres.NewKycRepository(db)
 	userRepo := postgres.NewUserRepository(db)
 	chatRepo := postgres.NewChatRepository(db)
 	messageRepo := postgres.NewMessageRepository(db)
+	pushRepo := postgres.NewPushRepository(db)
 	transferRepo := postgres.NewTransferRepository(db)
 	eventRepo := postgres.NewEventRepository(db)
 	postRepo := postgres.NewPostRepository(db)
@@ -54,6 +61,51 @@ func main() {
 	matchRepo := postgres.NewMatchRepository(db)
 	danceRepo := postgres.NewDanceRepository(db)
 
+	if err := messageRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize the required message schema: %v", err)
+	}
+	if err := pushRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize push schema: %v", err)
+	}
+	var pushSender ports.PushSender
+	if os.Getenv("PUSH_ENABLED") == "true" {
+		sender, err := pushadapter.NewFCM(pushCtx, os.Getenv("FIREBASE_PROJECT_ID"))
+		if err != nil {
+			log.Fatalf("Could not configure push notifications: %v", err)
+		}
+		pushSender = sender
+	} else {
+		log.Println("Android push disabled; configure Firebase and PUSH_ENABLED=true to enable")
+	}
+	pushService := coreServices.NewPushService(pushRepo, pushSender)
+	pushDone := make(chan struct{})
+	go func() {
+		defer close(pushDone)
+		if !pushService.Enabled() {
+			return
+		}
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		pruneTicker := time.NewTicker(time.Hour)
+		defer pruneTicker.Stop()
+		for {
+			select {
+			case <-pushCtx.Done():
+				return
+			case <-ticker.C:
+				if err := pushService.ProcessPending(pushCtx); err != nil && pushCtx.Err() == nil {
+					log.Printf("push worker: %v", err)
+				}
+			case <-pruneTicker.C:
+				if err := pushRepo.Prune(pushCtx); err != nil && pushCtx.Err() == nil {
+					log.Printf("push cleanup: %v", err)
+				}
+			}
+		}
+	}()
+	if err := matchRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize matcher chat indexes: %v", err)
+	}
 	if err := eventRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize the required event schema: %v", err)
 	}
@@ -63,15 +115,18 @@ func main() {
 	if err := surveyRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize the required survey schema: %v", err)
 	}
+	if err := communityRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize the required community schema: %v", err)
+	}
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo)
 	userService := user.NewUserService(userRepo)
-	
+
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()
 	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider)
 	searchService := search.NewSearchService(userRepo, eventRepo)
-	postService := coreServices.NewPostService(postRepo)
+	postService := coreServices.NewPostService(postRepo, communityRepo)
 
 	chatService := coreServices.NewChatService(chatRepo, messageRepo)
 	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo)
@@ -98,6 +153,20 @@ func main() {
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
 
 	chatHandler := handlers.NewChatHandler(chatService)
+	listenerURL := os.Getenv("CHAT_DATABASE_URL")
+	if listenerURL == "" {
+		listenerURL = dbURL
+		// Neon transaction poolers do not support LISTEN; reuse its direct endpoint.
+		if parsed, err := url.Parse(listenerURL); err == nil && strings.Contains(parsed.Host, "-pooler.") {
+			parsed.Host = strings.Replace(parsed.Host, "-pooler.", ".", 1)
+			listenerURL = parsed.String()
+		}
+	}
+	chatRealtime, err := handlers.NewChatRealtime(chatService, chatRepo, messageRepo, listenerURL)
+	if err != nil {
+		log.Fatalf("Could not start chat realtime listener: %v", err)
+	}
+	defer chatRealtime.Close()
 	transferHandler := handlers.NewTransferHandler(transferService)
 	surveyHandler := handlers.NewSurveyHandler(surveyService, eventService)
 	aiHandler := handlers.NewAIHandler()
@@ -115,6 +184,8 @@ func main() {
 		KycHandler:       kycHandler,
 		SearchHandler:    searchHandler,
 		ChatHandler:      chatHandler,
+		ChatRealtime:     chatRealtime,
+		PushHandler:      handlers.NewPushHandler(pushService),
 		TransferHandler:  transferHandler,
 		SurveyHandler:    surveyHandler,
 		AIHandler:        aiHandler,
@@ -148,6 +219,9 @@ func main() {
 	}()
 
 	<-stop
+	stopPush()
+	<-pushDone
+	chatRealtime.Close()
 	log.Println("🛑 Apagando el servidor gradualmente...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

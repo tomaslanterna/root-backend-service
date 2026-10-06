@@ -23,6 +23,8 @@ type RouterConfig struct {
 	AIHandler        *AIHandler
 	MatchHandler     *MatchHandler
 	DanceHandler     *DanceHandler
+	ChatRealtime     *ChatRealtime
+	PushHandler      *PushHandler
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -51,6 +53,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	})
 
 	r.Route("/v1", func(r chi.Router) {
+		if cfg.PushHandler != nil {
+			r.With(AuthMiddleware).Get("/push/status", cfg.PushHandler.Status)
+			r.With(AuthMiddleware).Put("/push/devices/{id}", cfg.PushHandler.Register)
+			r.With(AuthMiddleware).Delete("/push/devices/{id}", cfg.PushHandler.Remove)
+		}
+		if cfg.ChatRealtime != nil {
+			r.Get("/chats/ws", cfg.ChatRealtime.ServeHTTP)
+		}
 		// Búsqueda
 		r.With(OptionalAuthMiddleware).Post("/search", cfg.SearchHandler.Search)
 
@@ -58,12 +68,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/auth/login", cfg.AuthHandler.Login)
 		r.Post("/auth/register", cfg.AuthHandler.Register)
 		r.Post("/auth/google", cfg.AuthHandler.GoogleLogin)
-		
+
 		r.Get("/users/check-username", cfg.UserHandler.CheckUsername)
 		r.With(OptionalAuthMiddleware).Get("/users/{username}", cfg.UserHandler.GetUser)
 		r.With(OptionalAuthMiddleware).Get("/users/{username}/communities", cfg.CommunityHandler.GetUserCommunities)
 		r.With(OptionalAuthMiddleware).Get("/users/{username}/events", cfg.EventHandler.GetUserEvents)
-
 
 		r.Group(func(r chi.Router) {
 			r.Use(AuthMiddleware)
@@ -71,6 +80,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Delete("/users/{username}/follow", cfg.UserHandler.UnfollowUser)
 			r.Get("/users/me", cfg.UserHandler.GetMe)
 			r.Put("/users/me", cfg.UserHandler.UpdateMe)
+			r.Get("/users/me/communities", cfg.CommunityHandler.GetMyCommunities)
 		})
 
 		// 2. Feed y Publicaciones
@@ -99,13 +109,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		// 4. Comunidades
 		r.With(OptionalAuthMiddleware).Get("/communities", cfg.CommunityHandler.GetCommunities)
-		r.With(OptionalAuthMiddleware).Get("/communities/{id}", cfg.CommunityHandler.GetCommunityByID) // Añadido OptionalAuthMiddleware para saber el estado de isMember
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}", cfg.CommunityHandler.GetCommunity)
 		r.With(AuthMiddleware).Post("/communities/{id}/join", cfg.CommunityHandler.JoinCommunity)
+		r.With(AuthMiddleware).Delete("/communities/{id}/membership", cfg.CommunityHandler.LeaveCommunity)
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/announcements", cfg.PostHandler.GetCommunityAnnouncements)
+		r.With(AuthMiddleware).Post("/communities/{id}/announcements", cfg.PostHandler.CreateCommunityAnnouncement)
 
 		// 5. Crews Matcher (Event Squads)
 		r.Get("/crews/deck", cfg.CrewHandler.GetDeck)
 		r.Post("/crews/swipe", cfg.CrewHandler.Swipe) // Old fake endpoint
-		r.Get("/crews/matches", cfg.CrewHandler.GetMatches)
+		r.With(AuthMiddleware).Get("/crews/matches", cfg.MatchHandler.GetMatches)
+		r.With(AuthMiddleware).Post("/crews/{id}/chat", cfg.MatchHandler.EnsureSquadChat)
 		r.With(AuthMiddleware).Post("/events/{eventId}/swipes", cfg.MatchHandler.HandleSwipe)
 
 		// 6. KYC (Verificación de Identidad)
@@ -121,7 +135,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Get("/users/me/pending-surveys", cfg.SurveyHandler.GetPendingSurveys)
 			r.Post("/events/{id}/surveys", cfg.SurveyHandler.SubmitSurvey)
 		})
-
 
 		// 11. AI Assistant
 		r.With(AuthMiddleware).Post("/ai/enhance-text", cfg.AIHandler.EnhanceText)
@@ -144,6 +157,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Get("/chats/{id}", cfg.ChatHandler.GetChatByID)
 			r.Get("/chats/{id}/messages", cfg.ChatHandler.GetMessages)
 			r.Post("/chats/{id}/messages", cfg.ChatHandler.SendMessage)
+			r.Patch("/chats/{id}/messages/read", cfg.ChatHandler.MarkMessagesRead)
+			r.Post("/chats/{id}/receipts", cfg.ChatHandler.AcknowledgeMessages)
 		})
 
 		// Dance Ranker
