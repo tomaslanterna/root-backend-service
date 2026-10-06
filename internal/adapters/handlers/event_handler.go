@@ -345,3 +345,52 @@ func (h *EventHandler) GetUserEvents(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, events)
 }
+
+func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "Usuario no autenticado")
+		return
+	}
+
+	latStr := r.URL.Query().Get("lat")
+	lngStr := r.URL.Query().Get("lng")
+	
+	if latStr == "" || lngStr == "" {
+		respondWithError(w, http.StatusBadRequest, "lat y lng son requeridos")
+		return
+	}
+
+	lat, errLat := strconv.ParseFloat(latStr, 64)
+	lng, errLng := strconv.ParseFloat(lngStr, 64)
+	
+	if errLat != nil || errLng != nil {
+		respondWithError(w, http.StatusBadRequest, "lat y lng deben ser números válidos")
+		return
+	}
+
+	event, err := h.eventService.GetLiveEventStatus(r.Context(), userID, lat, lng)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondWithJSON(w, http.StatusOK, map[string]interface{}{
+				"isLive": false,
+				"event":  nil,
+			})
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Error obteniendo el estado en vivo")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"isLive": true,
+		"event": map[string]interface{}{
+			"id":         event.ID,
+			"title":      event.Title,
+			"date":       event.Date,
+			"bannerUrl":  event.CinematicBannerURL,
+			"latitude":   event.Latitude,
+			"longitude":  event.Longitude,
+		},
+	})
+}

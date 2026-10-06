@@ -61,6 +61,7 @@ type EventRepository interface {
 	CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error)
 	GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error)
 	UpdateEventTicketInfo(ctx context.Context, id string, tiers []domain.TicketTier, source *string) error
+	GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, error)
 	InitSchema(ctx context.Context) error
 }
 

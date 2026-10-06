@@ -97,6 +97,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// 3. Eventos y Entradas
 		r.With(OptionalAuthMiddleware).Get("/events", cfg.EventHandler.GetEvents)
 		r.Get("/events/featured", cfg.EventHandler.GetFeaturedEvents)
+		r.With(AuthMiddleware).Get("/events/live-status", cfg.EventHandler.GetLiveEventStatus)
 		r.With(OptionalAuthMiddleware).Get("/events/{id}", cfg.EventHandler.GetEventByID)
 		r.With(AuthMiddleware).Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
 		r.With(AuthMiddleware).Get("/events/{id}/attendees/followed", cfg.EventHandler.GetFollowedGoingAttendees)
