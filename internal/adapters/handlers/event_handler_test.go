@@ -64,6 +64,10 @@ func (s *eventServiceStub) GetUserEvents(context.Context, string) ([]domain.Even
 	return []domain.Event{}, nil
 }
 
+func (s *eventServiceStub) GetLiveEventStatus(context.Context, string, float64, float64) (*domain.Event, error) {
+	return nil, nil
+}
+
 func requestWithRouteAndUser(request *http.Request, eventID, userID string) *http.Request {
 	routeContext := chi.NewRouteContext()
 	routeContext.URLParams.Add("id", eventID)
