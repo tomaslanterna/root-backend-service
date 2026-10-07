@@ -164,12 +164,12 @@ func (r *postRepository) GetCommunityPosts(ctx context.Context, communityID stri
 
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT p.id, p.author_id, p.event_id, p.community_id, p.title, p.content,
-			p.long_content, p.header_image_url, p.timestamp, p.is_featured,
+			p.long_content, p.header_image_url, p.timestamp, p.is_featured, p.is_pinned,
 			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
 		FROM posts p
 		LEFT JOIN users u ON p.author_id = u.id
 		WHERE p.community_id::text = $1
-		ORDER BY p.timestamp DESC, p.id DESC
+		ORDER BY p.is_pinned DESC, p.timestamp DESC, p.id DESC
 		LIMIT $2 OFFSET $3`, communityID, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list community announcements: %w", err)
@@ -182,7 +182,7 @@ func (r *postRepository) GetCommunityPosts(ctx context.Context, communityID stri
 		if err := rows.Scan(
 			&post.ID, &post.AuthorID, &post.EventID, &post.CommunityID, &post.Title,
 			&post.Content, &post.LongContent, &post.HeaderImageURL, &post.Timestamp,
-			&post.IsFeatured, &post.AuthorName, &post.AuthorAvatar, &post.IsVerified,
+			&post.IsFeatured, &post.IsPinned, &post.AuthorName, &post.AuthorAvatar, &post.IsVerified,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan community announcement: %w", err)
 		}

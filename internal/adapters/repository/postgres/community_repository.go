@@ -26,6 +26,7 @@ func (r *communityRepository) InitSchema(ctx context.Context) error {
 	defer tx.Rollback()
 
 	statements := []string{
+		`SELECT pg_advisory_xact_lock(hashtext('root_community_schema'))`,
 		`CREATE EXTENSION IF NOT EXISTS unaccent`,
 		`ALTER TABLE communities ADD COLUMN IF NOT EXISTS slug TEXT`,
 		`ALTER TABLE communities ADD COLUMN IF NOT EXISTS category TEXT`,
@@ -43,6 +44,24 @@ func (r *communityRepository) InitSchema(ctx context.Context) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_community_members_unique ON community_members (community_id, user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_community_members_user ON community_members (user_id, joined_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_community_members_community ON community_members (community_id)`,
+		`ALTER TABLE community_members ADD COLUMN IF NOT EXISTS muted BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE community_members ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ`,
+		`ALTER TABLE community_members ADD COLUMN IF NOT EXISTS last_read_post_id UUID`,
+		`ALTER TABLE posts ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE`,
+		`CREATE INDEX IF NOT EXISTS idx_posts_community_pinned ON posts (community_id, is_pinned DESC, timestamp DESC, id DESC) WHERE community_id IS NOT NULL`,
+		`CREATE TABLE IF NOT EXISTS community_reports (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			community_id UUID NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+			reporter_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			target_type TEXT NOT NULL CHECK (target_type IN ('post','comment')),
+			target_id UUID NOT NULL, reason TEXT NOT NULL CHECK (reason IN ('spam','abuse','other')),
+			details TEXT NOT NULL CHECK (char_length(details) <= 1000), content_snapshot TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','reviewed','dismissed')),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), reviewed_at TIMESTAMPTZ,
+			reviewer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+			UNIQUE(reporter_id, target_type, target_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_community_reports_review ON community_reports(community_id, status, created_at DESC, id DESC)`,
 		`CREATE TABLE IF NOT EXISTS community_managers (
 			community_id UUID NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
 			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -85,10 +104,7 @@ func communitySelect() string {
 		SELECT c.id, c.name, c.slug, c.category, COALESCE(c.zone, ''), c.pr_owner_id,
 			c.country_id, COALESCE(c.cover_image_url, ''), COALESCE(c.description, ''),
 			c.created_at, COALESCE(mc.members_count, 0),
-			EXISTS (
-				SELECT 1 FROM community_members viewer_membership
-				WHERE viewer_membership.community_id = c.id AND viewer_membership.user_id::text = $1
-			),
+			(vm.user_id IS NOT NULL),
 			COALESCE((
 				EXISTS (SELECT 1 FROM users viewer WHERE viewer.id::text = $1 AND UPPER(viewer.role) = 'ADMIN')
 				OR EXISTS (
@@ -103,8 +119,20 @@ func communitySelect() string {
 						AND UPPER(manager_user.role) = 'RRPP'
 				)
 			), FALSE),
-			c.is_active
+			c.is_active, COALESCE(vm.muted, FALSE),
+			(SELECT COUNT(*)::int FROM posts unread WHERE unread.community_id = c.id
+			 AND vm.user_id IS NOT NULL AND (unread.timestamp, unread.id) >
+			 (COALESCE(vm.last_read_at, vm.joined_at), COALESCE(vm.last_read_post_id, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid))),
+			contact.id, COALESCE(contact.name, ''), COALESCE(contact.username, ''), COALESCE(contact.avatar_url, '')
 		FROM communities c
+		LEFT JOIN community_members vm ON vm.community_id = c.id AND vm.user_id = NULLIF($1, '')::uuid
+		LEFT JOIN LATERAL (
+			SELECT u.id, u.name, u.username, u.avatar_url FROM (
+				SELECT c.pr_owner_id AS id UNION SELECT cm.user_id FROM community_managers cm WHERE cm.community_id = c.id
+			) candidates JOIN users u ON u.id = candidates.id
+			WHERE UPPER(u.role) = 'RRPP'
+			ORDER BY (u.id = c.pr_owner_id) DESC NULLS LAST, u.id ASC LIMIT 1
+		) contact ON TRUE
 		LEFT JOIN (
 			SELECT community_id, COUNT(*)::int AS members_count
 			FROM community_members GROUP BY community_id
@@ -114,13 +142,20 @@ func communitySelect() string {
 
 func scanCommunity(scanner interface{ Scan(...any) error }) (*domain.Community, error) {
 	var community domain.Community
+	var contactID sql.NullString
+	var contact domain.CommunityContact
 	if err := scanner.Scan(
 		&community.ID, &community.Name, &community.Slug, &community.Category, &community.Zone,
 		&community.PROwnerID, &community.CountryID, &community.CoverImageURL, &community.Description,
 		&community.CreatedAt, &community.MembersCount, &community.IsMember, &community.CanPublish,
-		&community.IsActive,
+		&community.IsActive, &community.Muted, &community.UnreadCount,
+		&contactID, &contact.Name, &contact.Username, &contact.AvatarURL,
 	); err != nil {
 		return nil, err
+	}
+	if contactID.Valid {
+		contact.ID = contactID.String
+		community.Contact = &contact
 	}
 	return &community, nil
 }
@@ -178,6 +213,13 @@ func buildCommunityWhere(filter domain.CommunityFilter, firstPlaceholder int) (s
 		placeholder := firstPlaceholder + len(args)
 		args = append(args, filter.Query)
 		conditions = append(conditions, fmt.Sprintf("(unaccent(LOWER(c.name)) LIKE '%%' || unaccent(LOWER($%d)) || '%%' OR unaccent(LOWER(COALESCE(c.description, ''))) LIKE '%%' || unaccent(LOWER($%d)) || '%%')", placeholder, placeholder))
+	}
+	if filter.Scope == "mine" || (filter.Scope == "explore" && filter.ViewerID != "") {
+		prefix := "EXISTS"
+		if filter.Scope == "explore" {
+			prefix = "NOT EXISTS"
+		}
+		addCondition(prefix+" (SELECT 1 FROM community_members scope_member WHERE scope_member.community_id = c.id AND scope_member.user_id::text = $%d)", filter.ViewerID)
 	}
 	return strings.Join(conditions, " AND "), args
 }

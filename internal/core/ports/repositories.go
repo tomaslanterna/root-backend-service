@@ -84,6 +84,12 @@ type PostRepository interface {
 }
 
 type CommunityRepository interface {
+	SetMuted(ctx context.Context, communityID, userID string, muted bool) error
+	MarkRead(ctx context.Context, communityID, userID, postID string) error
+	SetPinned(ctx context.Context, communityID, postID string, pinned bool) error
+	CreateReport(ctx context.Context, communityID, userID string, input domain.CommunityReportInput) (string, error)
+	GetReports(ctx context.Context, communityID string, limit, offset int) ([]domain.CommunityReport, int, error)
+	ReviewReport(ctx context.Context, communityID, userID, reportID, status string) error
 	InitSchema(ctx context.Context) error
 	GetCommunities(ctx context.Context, filter domain.CommunityFilter, currentUserID string) ([]domain.Community, int, error)
 	GetCommunityByIDOrSlug(ctx context.Context, identifier string, currentUserID string) (*domain.Community, error)

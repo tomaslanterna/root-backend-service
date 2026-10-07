@@ -3,10 +3,12 @@ package community
 import (
 	"context"
 	"root-backend-service/internal/core/domain"
+	"root-backend-service/internal/core/ports"
 	"testing"
 )
 
 type communityRepositoryStub struct {
+	ports.CommunityRepository
 	filter       domain.CommunityFilter
 	joinCalls    int
 	leaveCalls   int

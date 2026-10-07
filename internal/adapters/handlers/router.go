@@ -114,6 +114,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(AuthMiddleware).Delete("/communities/{id}/membership", cfg.CommunityHandler.LeaveCommunity)
 		r.With(OptionalAuthMiddleware).Get("/communities/{id}/announcements", cfg.PostHandler.GetCommunityAnnouncements)
 		r.With(AuthMiddleware).Post("/communities/{id}/announcements", cfg.PostHandler.CreateCommunityAnnouncement)
+		r.With(AuthMiddleware).Put("/communities/{id}/membership/preferences", cfg.CommunityHandler.SetMuted)
+		r.With(AuthMiddleware).Post("/communities/{id}/read", cfg.CommunityHandler.MarkRead)
+		r.With(AuthMiddleware).Put("/communities/{id}/announcements/{postID}/pin", cfg.CommunityHandler.SetPinned)
+		r.With(AuthMiddleware).Post("/communities/{id}/reports", cfg.CommunityHandler.CreateReport)
+		r.With(AuthMiddleware).Get("/communities/{id}/reports", cfg.CommunityHandler.GetReports)
+		r.With(AuthMiddleware).Patch("/communities/{id}/reports/{reportID}", cfg.CommunityHandler.ReviewReport)
 
 		// 5. Crews Matcher (Event Squads)
 		r.Get("/crews/deck", cfg.CrewHandler.GetDeck)

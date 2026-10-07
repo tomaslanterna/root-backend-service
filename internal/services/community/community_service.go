@@ -17,6 +17,13 @@ func NewCommunityService(repo ports.CommunityRepository) ports.CommunityService 
 }
 
 func (s *communityService) GetCommunities(ctx context.Context, filter domain.CommunityFilter, currentUserID string) ([]domain.Community, int, error) {
+	if filter.Scope != "" && filter.Scope != "mine" && filter.Scope != "explore" {
+		return nil, 0, domain.ErrCommunityInvalid
+	}
+	if filter.Scope == "mine" && currentUserID == "" {
+		return nil, 0, domain.ErrCommunityForbidden
+	}
+	filter.ViewerID = currentUserID
 	filter.Country = strings.TrimSpace(filter.Country)
 	filter.Category = strings.TrimSpace(filter.Category)
 	filter.Department = strings.TrimSpace(filter.Department)

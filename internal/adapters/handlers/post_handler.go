@@ -261,13 +261,30 @@ func (h *PostHandler) GetCommunityAnnouncements(w http.ResponseWriter, r *http.R
 	for index := range posts {
 		h.signPostMedia(r, &posts[index])
 	}
+	// Preserve PostgreSQL microsecond precision; the browser must not decide the read watermark.
+	readThroughPostID := latestCommunityAnnouncementID(posts)
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"data": posts,
+		"data":              posts,
+		"readThroughPostId": readThroughPostID,
 		"meta": map[string]interface{}{
 			"total": total, "limit": limit, "offset": offset,
 			"hasMore": offset+len(posts) < total,
 		},
 	})
+}
+
+func latestCommunityAnnouncementID(posts []domain.Post) string {
+	var latest *domain.Post
+	for i := range posts {
+		post := &posts[i]
+		if latest == nil || post.Timestamp.After(latest.Timestamp) || (post.Timestamp.Equal(latest.Timestamp) && post.ID > latest.ID) {
+			latest = post
+		}
+	}
+	if latest == nil {
+		return ""
+	}
+	return latest.ID
 }
 
 func (h *PostHandler) CreateCommunityAnnouncement(w http.ResponseWriter, r *http.Request) {
