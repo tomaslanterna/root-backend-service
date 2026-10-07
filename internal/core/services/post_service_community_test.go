@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"root-backend-service/internal/core/domain"
+	"root-backend-service/internal/core/ports"
 	"testing"
 	"time"
 )
@@ -42,6 +43,7 @@ func (s *postRepositoryForCommunityStub) CreatePostComment(context.Context, stri
 }
 
 type communityRepositoryForPostStub struct {
+	ports.CommunityRepository
 	canPublish bool
 }
 

@@ -60,8 +60,17 @@ func (h *CommunityHandler) GetCommunities(w http.ResponseWriter, r *http.Request
 		Query:      r.URL.Query().Get("query"),
 		Limit:      limit,
 		Offset:     offset,
+		Scope:      r.URL.Query().Get("scope"),
 	}
 	userID, _ := r.Context().Value(UserIDKey).(string)
+	if filter.Scope != "" && filter.Scope != "mine" && filter.Scope != "explore" {
+		respondWithError(w, 400, "Scope inválido")
+		return
+	}
+	if filter.Scope == "mine" && userID == "" {
+		respondWithError(w, 401, "Usuario no autenticado")
+		return
+	}
 
 	communities, total, err := h.communityService.GetCommunities(r.Context(), filter, userID)
 	if err != nil {
@@ -159,7 +168,11 @@ func respondWithCommunityError(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrCommunityNotFound):
 		respondWithError(w, http.StatusNotFound, "Comunidad no encontrada")
 	case errors.Is(err, domain.ErrCommunityForbidden):
-		respondWithError(w, http.StatusForbidden, "No tenés permiso para publicar en esta comunidad")
+		respondWithError(w, http.StatusForbidden, "No tenés permiso para esta acción en la comunidad")
+	case errors.Is(err, domain.ErrCommunityInvalid):
+		respondWithError(w, http.StatusBadRequest, "Solicitud de comunidad inválida")
+	case errors.Is(err, domain.ErrCommunityTargetNotFound):
+		respondWithError(w, http.StatusNotFound, "Contenido no encontrado en esta comunidad")
 	default:
 		respondWithError(w, http.StatusInternalServerError, "No se pudo completar la operación")
 	}

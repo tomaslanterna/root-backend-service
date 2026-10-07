@@ -5,6 +5,7 @@ import (
 )
 
 type Post struct {
+	IsPinned       bool      `json:"isPinned"`
 	ID             string    `json:"id"`
 	AuthorID       string    `json:"authorId"`
 	EventID        *string   `json:"eventId,omitempty"`
@@ -16,9 +17,9 @@ type Post struct {
 	Timestamp      time.Time `json:"timestamp"`
 	IsFeatured     bool      `json:"isFeatured"`
 	// Campos extra que pueden venir hidratados
-	AuthorName     string    `json:"authorName"`
-	AuthorAvatar   string    `json:"authorAvatar"`
-	IsVerified     bool      `json:"isVerified"`
-	LikesCount     int       `json:"likesCount"`
-	Tags           []string  `json:"tags"`
+	AuthorName   string   `json:"authorName"`
+	AuthorAvatar string   `json:"authorAvatar"`
+	IsVerified   bool     `json:"isVerified"`
+	LikesCount   int      `json:"likesCount"`
+	Tags         []string `json:"tags"`
 }

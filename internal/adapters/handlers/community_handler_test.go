@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"root-backend-service/internal/core/domain"
+	"root-backend-service/internal/core/ports"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type communityServiceForHandlerStub struct {
+	ports.CommunityService
 	filter      domain.CommunityFilter
 	currentUser string
 	joinCalls   int
