@@ -17,28 +17,19 @@ func NewDanceRepository(db *sql.DB) ports.DanceRepository {
 }
 
 func (r *danceRepository) SaveDanceSession(ctx context.Context, session *domain.DanceSession) error {
-	// 1. Try to UPDATE an existing session for this user and event
-	updateQuery := `
-		UPDATE dance_sessions 
-		SET steps_count = steps_count + $1, end_time = $2, is_validated = $3
-		WHERE user_id = $4 AND event_id = $5
-	`
-	res, err := r.db.ExecContext(ctx, updateQuery, session.StepsCount, session.EndTime, session.IsValidated, session.UserID, session.EventID)
-	if err != nil {
-		return err
-	}
-
-	rowsAffected, _ := res.RowsAffected()
-	if rowsAffected > 0 {
-		return nil // Existing session updated!
-	}
-
-	// 2. If no rows affected, INSERT a new one
-	insertQuery := `
+	upsertQuery := `
 		INSERT INTO dance_sessions (id, user_id, event_id, steps_count, start_time, end_time, is_validated, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (user_id, event_id) 
+		DO UPDATE SET 
+			steps_count = dance_sessions.steps_count + EXCLUDED.steps_count,
+			end_time = EXCLUDED.end_time,
+			is_validated = EXCLUDED.is_validated
 	`
-	_, err = r.db.ExecContext(ctx, insertQuery, session.ID, session.UserID, session.EventID, session.StepsCount, session.StartTime, session.EndTime, session.IsValidated, session.CreatedAt)
+	_, err := r.db.ExecContext(ctx, upsertQuery, 
+		session.ID, session.UserID, session.EventID, session.StepsCount, 
+		session.StartTime, session.EndTime, session.IsValidated, session.CreatedAt)
+	
 	return err
 }
 
