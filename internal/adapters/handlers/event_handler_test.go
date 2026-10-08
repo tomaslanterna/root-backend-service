@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"root-backend-service/internal/core/domain"
@@ -64,8 +65,12 @@ func (s *eventServiceStub) GetUserEvents(context.Context, string) ([]domain.Even
 	return []domain.Event{}, nil
 }
 
-func (s *eventServiceStub) GetLiveEventStatus(context.Context, string, float64, float64) (*domain.Event, error) {
-	return nil, nil
+func (s *eventServiceStub) GetLiveEventStatus(context.Context, string, float64, float64) (*domain.Event, int, error) {
+	return nil, 0, nil
+}
+
+func (s *eventServiceStub) BulkCreateFromCSV(ctx context.Context, r io.Reader) (int, error) {
+	return 0, nil
 }
 
 func requestWithRouteAndUser(request *http.Request, eventID, userID string) *http.Request {
@@ -80,7 +85,7 @@ func requestWithRouteAndUser(request *http.Request, eventID, userID string) *htt
 
 func TestGetEventsParsesCombinedFiltersAndPagination(t *testing.T) {
 	service := &eventServiceStub{}
-	handler := NewEventHandler(service)
+	handler := NewEventHandler(service, nil)
 	request := httptest.NewRequest(http.MethodGet,
 		"/v1/events?genre=Electr%C3%B3nica&location=Montevideo&minPrice=100&maxPrice=500&isFree=false&startDate=2026-09-01T03:00:00Z&endDate=2026-09-30T02:59:59Z&limit=1&offset=0",
 		nil,
@@ -119,7 +124,7 @@ func TestGetEventsParsesCombinedFiltersAndPagination(t *testing.T) {
 
 func TestGetEventsRejectsInvalidRange(t *testing.T) {
 	service := &eventServiceStub{}
-	handler := NewEventHandler(service)
+	handler := NewEventHandler(service, nil)
 	request := httptest.NewRequest(http.MethodGet, "/v1/events?minPrice=500&maxPrice=100", nil)
 	response := httptest.NewRecorder()
 
@@ -135,7 +140,7 @@ func TestGetEventsRejectsInvalidRange(t *testing.T) {
 
 func TestRSVPUsesAuthenticatedUserAndRejectsArbitraryUserID(t *testing.T) {
 	service := &eventServiceStub{}
-	handler := NewEventHandler(service)
+	handler := NewEventHandler(service, nil)
 
 	invalid := httptest.NewRequest(http.MethodPost, "/v1/events/event-1/rsvp", strings.NewReader(`{"status":"going","userId":"other"}`))
 	invalid = requestWithRouteAndUser(invalid, "event-1", "user-1")
@@ -159,7 +164,7 @@ func TestRSVPUsesAuthenticatedUserAndRejectsArbitraryUserID(t *testing.T) {
 
 func TestCreateEventCommentTrimsAndValidatesContent(t *testing.T) {
 	service := &eventServiceStub{}
-	handler := NewEventHandler(service)
+	handler := NewEventHandler(service, nil)
 	request := httptest.NewRequest(http.MethodPost, "/v1/events/event-1/comments", strings.NewReader(`{"content":"  Gran fecha  "}`))
 	request = requestWithRouteAndUser(request, "event-1", "user-1")
 	response := httptest.NewRecorder()
@@ -175,7 +180,7 @@ func TestCreateEventCommentTrimsAndValidatesContent(t *testing.T) {
 }
 
 func TestFollowedAttendeesRequiresAuthentication(t *testing.T) {
-	handler := NewEventHandler(&eventServiceStub{})
+	handler := NewEventHandler(&eventServiceStub{}, nil)
 	request := httptest.NewRequest(http.MethodGet, "/v1/events/event-1/attendees/followed", nil)
 	request = requestWithRouteAndUser(request, "event-1", "")
 	response := httptest.NewRecorder()

@@ -1,12 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
+	"root-backend-service/internal/services/s3"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +20,7 @@ import (
 )
 
 const (
-	defaultEventPageSize   = 12
+	defaultEventPageSize   = 10
 	defaultRelatedPageSize = 20
 	maxPageSize            = 50
 	maxCommentLength       = 1000
@@ -24,10 +28,11 @@ const (
 
 type EventHandler struct {
 	eventService ports.EventService
+	s3Service    s3.S3Service
 }
 
-func NewEventHandler(eventService ports.EventService) *EventHandler {
-	return &EventHandler{eventService: eventService}
+func NewEventHandler(eventService ports.EventService, s3Service s3.S3Service) *EventHandler {
+	return &EventHandler{eventService: eventService, s3Service: s3Service}
 }
 
 func parseOptionalBool(value, name string) (*bool, error) {
@@ -147,6 +152,8 @@ func (h *EventHandler) GetEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.enrichEventImages(r.Context(), events)
+
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"data": events,
 		"meta": map[string]interface{}{
@@ -162,6 +169,9 @@ func (h *EventHandler) GetFeaturedEvents(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error obteniendo eventos destacados")
 		return
 	}
+	
+	h.enrichEventImages(r.Context(), events)
+	
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"data": events,
 		"meta": map[string]interface{}{"total": len(events)},
@@ -184,6 +194,7 @@ func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Error obteniendo el evento")
 		return
 	}
+	h.enrichEventImage(r.Context(), event)
 	respondWithJSON(w, http.StatusOK, event)
 }
 
@@ -343,6 +354,8 @@ func (h *EventHandler) GetUserEvents(w http.ResponseWriter, r *http.Request) {
 		events = []domain.Event{}
 	}
 
+	h.enrichEventImages(r.Context(), events)
+
 	respondWithJSON(w, http.StatusOK, events)
 }
 
@@ -369,7 +382,7 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	event, err := h.eventService.GetLiveEventStatus(r.Context(), userID, lat, lng)
+	event, userSteps, err := h.eventService.GetLiveEventStatus(r.Context(), userID, lat, lng)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -382,8 +395,11 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	h.enrichEventImage(r.Context(), event)
+
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"isLive": true,
+		"userSteps": userSteps,
 		"event": map[string]interface{}{
 			"id":         event.ID,
 			"title":      event.Title,
@@ -393,4 +409,108 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 			"longitude":  event.Longitude,
 		},
 	})
+}
+
+// BulkCreateEventsCSV lee un archivo CSV subido por multipart form y crea los eventos
+func (h *EventHandler) BulkCreateEventsCSV(w http.ResponseWriter, r *http.Request) {
+	// Parsear el form (hasta 10MB)
+	err := r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "No se pudo parsear el formulario")
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Se requiere el archivo 'file'")
+		return
+	}
+	defer file.Close()
+
+	count, err := h.eventService.BulkCreateFromCSV(r.Context(), file)
+	if err != nil {
+		log.Printf("Error processing CSV: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "Error procesando el archivo CSV")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Eventos creados exitosamente",
+		"count": count,
+	})
+}
+
+// UploadEventImage maneja la subida de una imagen para un evento (ej. banner) al S3 y retorna su key o URL
+func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) {
+	if h.s3Service == nil {
+		respondWithError(w, http.StatusInternalServerError, "S3 Service not initialized")
+		return
+	}
+
+	err := r.ParseMultipartForm(50 << 20) // 50MB limit for multiple images
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "File too large or invalid")
+		return
+	}
+
+	files := r.MultipartForm.File["images"]
+	if len(files) == 0 {
+		respondWithError(w, http.StatusBadRequest, "No image files provided (use 'images' form key)")
+		return
+	}
+
+	type UploadResult struct {
+		URL string `json:"url"`
+		Key string `json:"key"`
+	}
+	var results []UploadResult
+
+	for _, header := range files {
+		file, err := header.Open()
+		if err != nil {
+			log.Printf("Error opening file %s: %v", header.Filename, err)
+			continue
+		}
+
+		// time.Now().UnixNano() evita colisiones si se procesan en el mismo milisegundo
+		key := fmt.Sprintf("events/%d_%s", time.Now().UnixNano(), header.Filename)
+		url, s3Err := h.s3Service.UploadToS3(r.Context(), file, key, header.Header.Get("Content-Type"))
+		file.Close()
+
+		if s3Err != nil {
+			log.Printf("Failed to upload image %s to S3: %v", header.Filename, s3Err)
+			continue
+		}
+
+		results = append(results, UploadResult{
+			URL: url,
+			Key: key,
+		})
+	}
+
+	respondWithJSON(w, http.StatusOK, results)
+}
+
+func (h *EventHandler) enrichEventImages(ctx context.Context, events []domain.Event) {
+	if h.s3Service == nil {
+		return
+	}
+	for i := range events {
+		if events[i].CinematicBannerURL != "" && !strings.HasPrefix(events[i].CinematicBannerURL, "http") {
+			if url, err := h.s3Service.GenerateViewUrl(ctx, events[i].CinematicBannerURL, 7*24*time.Hour); err == nil {
+				events[i].CinematicBannerURL = url
+			}
+		}
+	}
+}
+
+func (h *EventHandler) enrichEventImage(ctx context.Context, event *domain.Event) {
+	if h.s3Service == nil || event == nil {
+		return
+	}
+	if event.CinematicBannerURL != "" && !strings.HasPrefix(event.CinematicBannerURL, "http") {
+		if url, err := h.s3Service.GenerateViewUrl(ctx, event.CinematicBannerURL, 7*24*time.Hour); err == nil {
+			event.CinematicBannerURL = url
+		}
+	}
 }

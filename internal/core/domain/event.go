@@ -15,6 +15,7 @@ type Event struct {
 	Title                string        `json:"title"`
 	ProducerID           *string       `json:"producerId,omitempty"`
 	Date                 time.Time     `json:"date"`
+	EndDate              *time.Time    `json:"endDate,omitempty"`
 	Location             string        `json:"location"`
 	Latitude             *float64      `json:"latitude,omitempty"`
 	Longitude            *float64      `json:"longitude,omitempty"`

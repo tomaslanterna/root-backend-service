@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"io"
 	"root-backend-service/internal/core/domain"
 	"time"
 )
@@ -53,7 +54,8 @@ type EventService interface {
 	CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error)
 	GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error)
 	GetUserEvents(ctx context.Context, username string) ([]domain.Event, error)
-	GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, error)
+	GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, int, error)
+	BulkCreateFromCSV(ctx context.Context, file io.Reader) (int, error)
 }
 
 type FeedData struct {
