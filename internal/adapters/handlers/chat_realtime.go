@@ -195,7 +195,7 @@ func (h *ChatRealtime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := socket.ReadJSON(&auth); err != nil || auth.Type != "authenticate" {
 		return
 	}
-	userID, err := parseToken(auth.Token)
+	userID, err := authenticateToken(r.Context(), auth.Token)
 	if err != nil {
 		socket.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(4401, "Authentication required"), time.Now().Add(time.Second))
 		return
@@ -266,6 +266,10 @@ func (h *ChatRealtime) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case <-tick.C:
+				if _, err := authenticateToken(r.Context(), auth.Token); err != nil {
+					socket.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(4401, "Session revoked"), time.Now().Add(time.Second))
+					return
+				}
 				if socket.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)) != nil {
 					return
 				}

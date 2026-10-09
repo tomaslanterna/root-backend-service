@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"root-backend-service/internal/core/ports"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -25,6 +26,8 @@ type RouterConfig struct {
 	DanceHandler     *DanceHandler
 	ChatRealtime     *ChatRealtime
 	PushHandler      *PushHandler
+	PasswordRecovery *PasswordRecoveryHandler
+	ValidateSession  ports.SessionValidator
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -33,6 +36,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	// Middlewares
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	if cfg.ValidateSession != nil {
+		r.Use(sessionValidationContext(cfg.ValidateSession))
+	}
 
 	// Configuración de CORS
 	r.Use(cors.Handler(cors.Options{
@@ -68,6 +74,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/auth/login", cfg.AuthHandler.Login)
 		r.Post("/auth/register", cfg.AuthHandler.Register)
 		r.Post("/auth/google", cfg.AuthHandler.GoogleLogin)
+		if cfg.PasswordRecovery != nil {
+			r.Post("/auth/forgot-password", cfg.PasswordRecovery.Request)
+			r.Post("/auth/reset-password", cfg.PasswordRecovery.Reset)
+		}
 
 		r.Get("/users/check-username", cfg.UserHandler.CheckUsername)
 		r.With(OptionalAuthMiddleware).Get("/users/{username}", cfg.UserHandler.GetUser)

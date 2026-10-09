@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	emailadapter "root-backend-service/internal/adapters/email"
 	"root-backend-service/internal/adapters/handlers"
 	pushadapter "root-backend-service/internal/adapters/push"
 	"root-backend-service/internal/adapters/repository/postgres"
@@ -67,6 +68,53 @@ func main() {
 	if err := pushRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize push schema: %v", err)
 	}
+	recoveryRepo := postgres.NewPasswordRecoveryRepository(db)
+	if err := recoveryRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize password recovery schema: %v", err)
+	}
+	var recoverySender ports.PasswordResetSender
+	emailSender, err := emailadapter.NewTransactional(os.Getenv("PASSWORD_RESET_EMAIL_PROVIDER"), os.Getenv("PASSWORD_RESET_EMAIL_API_KEY"), os.Getenv("PASSWORD_RESET_EMAIL_FROM"))
+	if err != nil {
+		log.Fatalf("Could not configure recovery email: %v", err)
+	}
+	if emailSender != nil {
+		recoverySender = emailSender
+	}
+	recoveryService, err := auth.NewPasswordRecovery(recoveryRepo, recoverySender, os.Getenv("PASSWORD_RESET_TOKEN_KEY"), os.Getenv("FRONTEND_URL"))
+	if err != nil {
+		log.Fatalf("Could not configure password recovery: %v", err)
+	}
+	if !recoveryService.Enabled() {
+		log.Println("Password recovery disabled; select and configure an email provider")
+	}
+	recoveryDone := make(chan struct{})
+	go func() {
+		defer close(recoveryDone)
+		if !recoveryService.Enabled() {
+			return
+		}
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pushCtx.Done():
+				return
+			case <-ticker.C:
+				for i := 0; i < 10; i++ {
+					processed, err := recoveryService.ProcessNext(pushCtx)
+					if err != nil {
+						if pushCtx.Err() == nil {
+							log.Println("Recovery email worker failed; check provider configuration and queue status")
+						}
+						break
+					}
+					if !processed {
+						break
+					}
+				}
+			}
+		}
+	}()
 	var pushSender ports.PushSender
 	if os.Getenv("PUSH_ENABLED") == "true" {
 		sender, err := pushadapter.NewFCM(pushCtx, os.Getenv("FIREBASE_PROJECT_ID"))
@@ -120,7 +168,7 @@ func main() {
 	}
 
 	// 3. Inicialización de Servicios
-	authService := auth.NewAuthService(userRepo)
+	authService := auth.NewAuthService(userRepo, recoveryRepo)
 	userService := user.NewUserService(userRepo)
 
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()
@@ -175,6 +223,8 @@ func main() {
 
 	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
+		PasswordRecovery: handlers.NewPasswordRecoveryHandler(recoveryService),
+		ValidateSession:  authService.ValidateSession,
 		AuthHandler:      authHandler,
 		UserHandler:      userHandler,
 		PostHandler:      postHandler,
@@ -221,6 +271,7 @@ func main() {
 	<-stop
 	stopPush()
 	<-pushDone
+	<-recoveryDone
 	chatRealtime.Close()
 	log.Println("🛑 Apagando el servidor gradualmente...")
 
