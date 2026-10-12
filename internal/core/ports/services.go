@@ -114,3 +114,7 @@ type TicketInfoResult struct {
 type AiTicketService interface {
 	FetchEventTickets(ctx context.Context, title, date, location, country, ticketURL string) (*TicketInfoResult, error)
 }
+
+type ContentModerationService interface {
+	ValidateContent(ctx context.Context, content string) error
+}

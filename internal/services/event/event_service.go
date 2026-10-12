@@ -14,16 +14,18 @@ import (
 )
 
 type EventService struct {
-	eventRepo       ports.EventRepository
-	artistRepo      ports.ArtistRepository
-	aiTicketService ports.AiTicketService
+	eventRepo        ports.EventRepository
+	artistRepo       ports.ArtistRepository
+	aiTicketService  ports.AiTicketService
+	moderatorService ports.ContentModerationService
 }
 
-func NewEventService(eventRepo ports.EventRepository, artistRepo ports.ArtistRepository, aiTicketService ports.AiTicketService) ports.EventService {
+func NewEventService(eventRepo ports.EventRepository, artistRepo ports.ArtistRepository, aiTicketService ports.AiTicketService, moderatorService ports.ContentModerationService) ports.EventService {
 	return &EventService{
-		eventRepo:       eventRepo,
-		artistRepo:      artistRepo,
-		aiTicketService: aiTicketService,
+		eventRepo:        eventRepo,
+		artistRepo:       artistRepo,
+		aiTicketService:  aiTicketService,
+		moderatorService: moderatorService,
 	}
 }
 
@@ -83,6 +85,11 @@ func (s *EventService) GetEventComments(ctx context.Context, eventID string, lim
 }
 
 func (s *EventService) CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error) {
+	if s.moderatorService != nil {
+		if err := s.moderatorService.ValidateContent(ctx, content); err != nil {
+			return nil, err
+		}
+	}
 	return s.eventRepo.CreateEventComment(ctx, eventID, authorID, content)
 }
 

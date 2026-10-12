@@ -124,7 +124,8 @@ func main() {
 	userService := user.NewUserService(userRepo)
 
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()
-	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider)
+	contentModerator := aiservice.NewGeminiContentModerator()
+	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider, contentModerator)
 	searchService := search.NewSearchService(userRepo, eventRepo)
 	postService := coreServices.NewPostService(postRepo, communityRepo)
 
