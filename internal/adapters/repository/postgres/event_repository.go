@@ -3,8 +3,8 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 	"strings"
@@ -37,6 +37,8 @@ func (r *EventRepository) InitSchema(ctx context.Context) error {
 
 	statements := []string{
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS genre VARCHAR(100)`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS department TEXT`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS country TEXT`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS price NUMERIC(10,2)`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_tiers JSONB`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_source TEXT`,
@@ -234,6 +236,10 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 	}
 	if len(events) == 0 {
 		return nil, sql.ErrNoRows
+	}
+	rows.Close()
+	if err := r.db.QueryRowContext(ctx, `SELECT NULLIF(to_jsonb(e)->>'department',''),NULLIF(to_jsonb(e)->>'country','') FROM events e WHERE id=$1`, id).Scan(&events[0].Department, &events[0].Country); err != nil {
+		return nil, fmt.Errorf("reading event location metadata: %w", err)
 	}
 	return &events[0], nil
 }
@@ -497,13 +503,15 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 			0 AS going_count, 0 AS not_going_count, ur.status,
 			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
 		FROM events e
-		JOIN event_rsvps ur ON ur.event_id = e.id
-		WHERE ur.user_id::text = $1 AND ur.status = 'going'
+		JOIN event_attendance attendance ON attendance.event_id=e.id AND attendance.user_id::text=$1
+		LEFT JOIN event_rsvps ur ON ur.event_id=e.id AND ur.user_id=attendance.user_id
+		WHERE attendance.user_id::text = $1
 		  AND e.date < CURRENT_TIMESTAMP
 		  AND NOT EXISTS (
 			  SELECT 1 FROM event_surveys es 
 			  WHERE es.event_id = e.id AND es.user_id::text = $2
 		  )
+		ORDER BY attendance.confirmed_at DESC,e.id DESC LIMIT 50
 	`, userID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("querying pending surveys: %w", err)
@@ -615,6 +623,11 @@ func (r *EventRepository) UpdateEventTicketInfo(ctx context.Context, id string, 
 }
 
 func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin attendance confirmation: %w", err)
+	}
+	defer tx.Rollback()
 	query := `
 		SELECT e.id, e.title, e.producer_id, e.date, e.location,
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
@@ -631,23 +644,24 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		  AND e.date >= NOW() - INTERVAL '12 hours' 
 		  AND e.date <= NOW() + INTERVAL '2 hours'
 		  AND (
-		    6371000 * acos(
+		    6371000 * acos(LEAST(1.0,GREATEST(-1.0,
 		      cos(radians($2)) * cos(radians(e.latitude)) *
 		      cos(radians(e.longitude) - radians($3)) +
 		      sin(radians($2)) * sin(radians(e.latitude))
-		    )
+		    )))
 		  ) <= COALESCE(e.geofence_radius_meters, 300)
 		ORDER BY e.date ASC
 		LIMIT 1
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, userID, lat, lng)
+	rows, err := tx.QueryContext(ctx, query, userID, lat, lng)
 	if err != nil {
 		return nil, fmt.Errorf("querying live event: %w", err)
 	}
 	defer rows.Close()
 
 	events, err := scanEvents(rows)
+	rows.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -656,5 +670,12 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		return nil, sql.ErrNoRows
 	}
 
+	// Only this server-validated geofence/time result grants a permanent collectible.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO event_attendance(user_id,event_id,source) VALUES($1,$2,'geofence') ON CONFLICT(user_id,event_id) DO NOTHING`, userID, events[0].ID); err != nil {
+		return nil, fmt.Errorf("confirm event attendance: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit event attendance: %w", err)
+	}
 	return &events[0], nil
 }

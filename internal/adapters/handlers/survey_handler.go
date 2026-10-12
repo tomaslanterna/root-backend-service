@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -26,7 +28,11 @@ func NewSurveyHandler(surveyService *survey.SurveyService, eventService ports.Ev
 }
 
 func (h *SurveyHandler) GetPendingSurveys(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(UserIDKey).(string)
+	userID, _ := r.Context().Value(UserIDKey).(string)
+	if userID == "" {
+		respondWithError(w, 401, "Iniciá sesión")
+		return
+	}
 
 	events, err := h.eventService.GetPendingSurveys(r.Context(), userID)
 	if err != nil {
@@ -43,7 +49,7 @@ type ArtistRatingPayload struct {
 }
 
 type SubmitSurveyRequest struct {
-	GeneralRating      int                   `json:"general_rating"`
+	GeneralRating      *int                  `json:"general_rating"`
 	OrganizationRating *int                  `json:"organization_rating"`
 	VibeRating         *int                  `json:"vibe_rating"`
 	SoundVisualRating  *int                  `json:"sound_visual_rating"`
@@ -55,12 +61,26 @@ type SubmitSurveyRequest struct {
 }
 
 func (h *SurveyHandler) SubmitSurvey(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(UserIDKey).(string)
+	userID, _ := r.Context().Value(UserIDKey).(string)
+	if userID == "" {
+		respondWithError(w, 401, "Iniciá sesión")
+		return
+	}
 	eventID := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(eventID); err != nil {
+		respondWithError(w, 400, "Evento inválido")
+		return
+	}
 
 	var req SubmitSurveyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if req.GeneralRating == nil || decoder.Decode(&struct{}{}) != io.EOF {
+		respondWithError(w, 400, "Seleccioná una puntuación de 0 a 5")
 		return
 	}
 
@@ -70,7 +90,7 @@ func (h *SurveyHandler) SubmitSurvey(w http.ResponseWriter, r *http.Request) {
 		ID:                 surveyID,
 		UserID:             userID,
 		EventID:            eventID,
-		GeneralRating:      req.GeneralRating,
+		GeneralRating:      *req.GeneralRating,
 		OrganizationRating: req.OrganizationRating,
 		VibeRating:         req.VibeRating,
 		SoundVisualRating:  req.SoundVisualRating,
@@ -82,6 +102,9 @@ func (h *SurveyHandler) SubmitSurvey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var artistRatings []domain.SurveyArtistRating
+	if req.ArtistRatings != nil {
+		artistRatings = make([]domain.SurveyArtistRating, 0, len(req.ArtistRatings))
+	}
 	for _, ar := range req.ArtistRatings {
 		artistRatings = append(artistRatings, domain.SurveyArtistRating{
 			ID:       uuid.NewString(),
@@ -93,13 +116,21 @@ func (h *SurveyHandler) SubmitSurvey(w http.ResponseWriter, r *http.Request) {
 
 	err := h.surveyService.SubmitSurvey(r.Context(), surveyDomain, artistRatings)
 	if err != nil {
-		if err.Error() == "user already submitted a survey for this event" {
-			respondWithError(w, http.StatusConflict, err.Error())
+		if errors.Is(err, domain.ErrSurveyConfirmed) {
+			respondWithError(w, http.StatusConflict, "La reseña ya fue confirmada y no se puede modificar")
 			return
 		}
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		if errors.Is(err, domain.ErrAttendanceRequired) {
+			respondWithError(w, 403, "Necesitás asistencia confirmada para valorar esta fiesta")
+			return
+		}
+		if errors.Is(err, domain.ErrInvalidSurvey) {
+			respondWithError(w, http.StatusBadRequest, "Valoración inválida (0 a 5 estrellas; texto de hasta 1000 caracteres)")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "No pudimos guardar la valoración")
 		return
 	}
 
-	respondWithJSON(w, http.StatusCreated, map[string]string{"status": "success", "message": "Survey submitted"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"status": "success", "message": "Valoración guardada"})
 }

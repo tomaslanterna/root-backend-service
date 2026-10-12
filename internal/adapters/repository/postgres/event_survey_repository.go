@@ -16,6 +16,17 @@ func NewEventSurveyRepository(db *sql.DB) *EventSurveyRepository {
 }
 
 func (r *EventSurveyRepository) InitSchema(ctx context.Context) error {
+	return r.initSchema(ctx, true)
+}
+
+// During a staged live rollout the older API has no attendance ledger yet.
+// Keep its existing review writes working; the updated repository still checks
+// attendance on every write. Normal deployments retain the composite FK.
+func (r *EventSurveyRepository) InitSchemaCompatible(ctx context.Context) error {
+	return r.initSchema(ctx, false)
+}
+
+func (r *EventSurveyRepository) initSchema(ctx context.Context, enforceAttendanceFK bool) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("beginning survey schema migration: %w", err)
@@ -23,6 +34,7 @@ func (r *EventSurveyRepository) InitSchema(ctx context.Context) error {
 	defer tx.Rollback()
 
 	statements := []string{
+		`SELECT pg_advisory_xact_lock(hashtextextended('root_surveys_schema',0))`,
 		`CREATE TABLE IF NOT EXISTS event_surveys (
 			id UUID PRIMARY KEY,
 			user_id UUID NOT NULL,
@@ -45,6 +57,24 @@ func (r *EventSurveyRepository) InitSchema(ctx context.Context) error {
 			rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
 			UNIQUE(survey_id, artist_id)
 		)`,
+		`ALTER TABLE event_surveys ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+		`ALTER TABLE event_surveys DROP CONSTRAINT IF EXISTS event_surveys_general_rating_check,
+		 DROP CONSTRAINT IF EXISTS event_surveys_organization_rating_check,
+		 DROP CONSTRAINT IF EXISTS event_surveys_vibe_rating_check,
+		 DROP CONSTRAINT IF EXISTS event_surveys_sound_visual_rating_check,
+		 DROP CONSTRAINT IF EXISTS event_surveys_pricing_rating_check`,
+		`ALTER TABLE event_surveys ADD CONSTRAINT event_surveys_general_rating_check CHECK(general_rating BETWEEN 0 AND 5),
+		 ADD CONSTRAINT event_surveys_organization_rating_check CHECK(organization_rating BETWEEN 0 AND 5),
+		 ADD CONSTRAINT event_surveys_vibe_rating_check CHECK(vibe_rating BETWEEN 0 AND 5),
+		 ADD CONSTRAINT event_surveys_sound_visual_rating_check CHECK(sound_visual_rating BETWEEN 0 AND 5),
+		 ADD CONSTRAINT event_surveys_pricing_rating_check CHECK(pricing_rating BETWEEN 0 AND 5)`,
+		`ALTER TABLE survey_artist_ratings DROP CONSTRAINT IF EXISTS survey_artist_ratings_rating_check`,
+		`ALTER TABLE survey_artist_ratings ADD CONSTRAINT survey_artist_ratings_rating_check CHECK(rating BETWEEN 0 AND 5)`,
+	}
+	if enforceAttendanceFK {
+		statements = append(statements, `DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='event_surveys'::regclass AND conname='event_surveys_attendance_fk') THEN
+		 ALTER TABLE event_surveys ADD CONSTRAINT event_surveys_attendance_fk FOREIGN KEY(user_id,event_id) REFERENCES event_attendance(user_id,event_id) NOT VALID;
+		 END IF; END $$`)
 	}
 
 	for _, stmt := range statements {
@@ -63,24 +93,43 @@ func (r *EventSurveyRepository) CreateSurvey(ctx context.Context, survey *domain
 	}
 	defer tx.Rollback()
 
-	var exists bool
-	err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM event_surveys WHERE user_id::text = $1 AND event_id::text = $2)", survey.UserID, survey.EventID).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("checking existing survey: %w", err)
+	var confirmed bool
+	err = tx.QueryRowContext(ctx, `SELECT true FROM event_attendance WHERE user_id=$1 AND event_id=$2 FOR UPDATE`, survey.UserID, survey.EventID).Scan(&confirmed)
+	if err == sql.ErrNoRows {
+		return domain.ErrAttendanceRequired
 	}
-	if exists {
-		return fmt.Errorf("user already submitted a survey for this event")
+	if err != nil {
+		return fmt.Errorf("checking attendance: %w", err)
+	}
+	if !confirmed {
+		return domain.ErrAttendanceRequired
 	}
 
-	_, err = tx.ExecContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO event_surveys (id, user_id, event_id, general_rating, organization_rating, vibe_rating, sound_visual_rating, pricing_rating, space_rating, would_return, comment, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	`, survey.ID, survey.UserID, survey.EventID, survey.GeneralRating, survey.OrganizationRating, survey.VibeRating, survey.SoundVisualRating, survey.PricingRating, survey.SpaceRating, survey.WouldReturn, survey.Comment, survey.CreatedAt)
+		ON CONFLICT(user_id,event_id) DO NOTHING
+		RETURNING id,created_at,updated_at
+	`, survey.ID, survey.UserID, survey.EventID, survey.GeneralRating, survey.OrganizationRating, survey.VibeRating, survey.SoundVisualRating, survey.PricingRating, survey.SpaceRating, survey.WouldReturn, survey.Comment, survey.CreatedAt).Scan(&survey.ID, &survey.CreatedAt, &survey.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return domain.ErrSurveyConfirmed
+	}
 	if err != nil {
 		return fmt.Errorf("inserting survey: %w", err)
 	}
 
 	for _, ar := range artistRatings {
+		var belongs bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM event_artists WHERE event_id=$1 AND artist_id=$2)
+		 OR EXISTS(SELECT 1 FROM artists art JOIN event_attendance a ON a.user_id=art.example_user_id AND a.event_id=art.example_event_id
+		 JOIN events e ON e.id=a.event_id WHERE art.id=$2 AND art.is_example=true AND art.example_user_id=$3 AND art.example_event_id=$1
+		 AND a.source='manual' AND cardinality(COALESCE(e.lineup,'{}'::text[]))=0
+		 AND NOT EXISTS(SELECT 1 FROM event_artists ea WHERE ea.event_id=$1))`, survey.EventID, ar.ArtistID, survey.UserID).Scan(&belongs); err != nil {
+			return err
+		}
+		if !belongs {
+			return domain.ErrInvalidSurvey
+		}
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO survey_artist_ratings (id, survey_id, artist_id, rating)
 			VALUES ($1, $2, $3, $4)
