@@ -1,6 +1,11 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var ErrContentPolicyViolation = errors.New("este mensaje infringe nuestras políticas de violencia")
 
 type TicketTier struct {
 	Name         string  `json:"name"`

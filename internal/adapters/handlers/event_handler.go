@@ -320,6 +320,10 @@ func (h *EventHandler) CreateEventComment(w http.ResponseWriter, r *http.Request
 		respondWithError(w, http.StatusNotFound, "Evento no encontrado")
 		return
 	}
+	if errors.Is(err, domain.ErrContentPolicyViolation) {
+		respondWithError(w, http.StatusUnprocessableEntity, "Este mensaje infringe nuestras políticas de violencia")
+		return
+	}
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Error creando comentario")
 		return

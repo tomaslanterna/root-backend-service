@@ -17,9 +17,10 @@ type eventServiceStub struct {
 	filter       domain.EventFilter
 	currentUser  string
 	rsvpUser     string
-	rsvpStatus   string
-	commentText  string
-	serviceCalls int
+	rsvpStatus       string
+	commentText      string
+	createCommentErr error
+	serviceCalls     int
 }
 
 func (s *eventServiceStub) GetFeaturedEvents(context.Context, string) ([]domain.Event, error) {
@@ -52,6 +53,9 @@ func (s *eventServiceStub) GetEventComments(context.Context, string, int, int) (
 }
 
 func (s *eventServiceStub) CreateEventComment(_ context.Context, eventID, userID, content string) (*domain.EventComment, error) {
+	if s.createCommentErr != nil {
+		return nil, s.createCommentErr
+	}
 	s.currentUser = userID
 	s.commentText = content
 	return &domain.EventComment{ID: "comment-1", TargetID: eventID, AuthorID: userID, Content: content}, nil
@@ -189,5 +193,22 @@ func TestFollowedAttendeesRequiresAuthentication(t *testing.T) {
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", response.Code)
+	}
+}
+
+func TestCreateEventCommentRejectsPolicyViolation(t *testing.T) {
+	service := &eventServiceStub{createCommentErr: domain.ErrContentPolicyViolation}
+	handler := NewEventHandler(service, nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/events/event-1/comments", strings.NewReader(`{"content":"amenaza violenta"}`))
+	request = requestWithRouteAndUser(request, "event-1", "user-1")
+	response := httptest.NewRecorder()
+
+	handler.CreateEventComment(response, request)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "políticas de violencia") {
+		t.Fatalf("expected error message to mention violence policies, got: %s", response.Body.String())
 	}
 }
