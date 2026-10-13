@@ -78,6 +78,7 @@ REGLAS ESTRICTAS:
 2. Devuelve la respuesta ÚNICAMENTE en formato JSON plano y válido.
 3. NO agregues saludos, explicaciones, markdown, ni el bloque `+"```json"+` alrededor de la respuesta.
 4. Asegúrate de que los tipos de datos coincidan (precio como número, booleanos para los estados).
+5. Clasificación de tipo de entrada: Si el nombre de la entrada NO indica explícitamente que es 'VIP', 'Backstage', 'Mesa' o 'General', asume que es una entrada general y agrega la palabra 'General - ' al principio de su nombre (por ejemplo: si el texto dice 'Lote 2 - Acceso hasta las 23hs', devuélvelo como 'General - Lote 2 - Acceso hasta las 23hs'). Si ya indica que es VIP o General, respeta su nombre.
 
 Formato de ejemplo:
 {

@@ -187,7 +187,8 @@ func main() {
 	userService := user.NewUserService(userRepo)
 
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()
-	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider)
+	contentModerator := aiservice.NewGeminiContentModerator()
+	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider, contentModerator)
 	searchService := search.NewSearchService(userRepo, eventRepo)
 	postService := coreServices.NewPostService(postRepo, communityRepo)
 
@@ -210,7 +211,7 @@ func main() {
 	userHandler := handlers.NewUserHandler(userService)
 	communityHandler := handlers.NewCommunityHandler(communityService)
 	postHandler := handlers.NewPostHandler(postService, s3Service)
-	eventHandler := handlers.NewEventHandler(eventService)
+	eventHandler := handlers.NewEventHandler(eventService, s3Service)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)

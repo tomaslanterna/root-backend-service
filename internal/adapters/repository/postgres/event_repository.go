@@ -102,7 +102,7 @@ func (r *EventRepository) GetFeaturedEvents(ctx context.Context, country string)
 }
 
 func buildEventWhere(filter domain.EventFilter, startArg int) (string, []interface{}) {
-	clauses := []string{"e.date >= NOW()"}
+	clauses := []string{"COALESCE(e.end_date, e.date + INTERVAL '12 hours') >= NOW()"}
 	args := make([]interface{}, 0, 8)
 	argIdx := startArg
 
@@ -171,7 +171,7 @@ func (r *EventRepository) GetEvents(ctx context.Context, filter domain.EventFilt
 
 	where, filterArgs := buildEventWhere(filter, 2)
 	query := `
-		SELECT e.id, e.title, e.producer_id, e.date, e.location,
+		SELECT e.id, e.title, e.producer_id, e.date, e.end_date, e.location, e.latitude, e.longitude,
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
@@ -211,7 +211,7 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 	}
 
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT e.id, e.title, e.producer_id, e.date, e.location,
+		SELECT e.id, e.title, e.producer_id, e.date, e.end_date, e.location, e.latitude, e.longitude,
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
@@ -441,19 +441,30 @@ func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
 	for rows.Next() {
 		var event domain.Event
 		var producerID, genre, userRSVP sql.NullString
-		var price sql.NullFloat64
+		var price, lat, lng sql.NullFloat64
 		var lineup pq.StringArray
 		var ticketTiers []byte
 		var ticketSource, ticketUrl sql.NullString
-		var ticketInfoFetchedAt sql.NullTime
+		var ticketInfoFetchedAt, endDate sql.NullTime
 
 		if err := rows.Scan(
-			&event.ID, &event.Title, &producerID, &event.Date, &event.Location,
+			&event.ID, &event.Title, &producerID, &event.Date, &endDate, &event.Location, &lat, &lng,
 			&event.CinematicBannerURL, &event.Description, &lineup, &genre, &price,
 			&event.IsFeatured, &event.CreatedAt, &event.GoingCount, &event.NotGoingCount, &userRSVP,
 			&ticketTiers, &ticketSource, &ticketUrl, &ticketInfoFetchedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning event: %w", err)
+		}
+
+		if lat.Valid {
+			event.Latitude = &lat.Float64
+		}
+		if lng.Valid {
+			event.Longitude = &lng.Float64
+		}
+
+		if endDate.Valid {
+			event.EndDate = &endDate.Time
 		}
 
 		if producerID.Valid {
@@ -496,7 +507,7 @@ func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
 
 func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT e.id, e.title, e.producer_id, e.date, e.location,
+		SELECT e.id, e.title, e.producer_id, e.date, e.end_date, e.location, e.latitude, e.longitude,
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
@@ -522,7 +533,7 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 
 func (r *EventRepository) GetUserEvents(ctx context.Context, username string) ([]domain.Event, error) {
 	query := `
-		SELECT e.id, e.title, e.producer_id, e.date, e.location,
+		SELECT e.id, e.title, e.producer_id, e.date, e.end_date, e.location, e.latitude, e.longitude,
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
@@ -544,49 +555,7 @@ func (r *EventRepository) GetUserEvents(ctx context.Context, username string) ([
 		return nil, err
 	}
 	defer rows.Close()
-
-	var events []domain.Event
-	for rows.Next() {
-		var e domain.Event
-		var lineup []byte
-		var ticketTiers []byte
-		var ticketSource, ticketUrl sql.NullString
-		var ticketInfoFetchedAt sql.NullTime
-
-		if err := rows.Scan(
-			&e.ID, &e.Title, &e.ProducerID, &e.Date, &e.Location,
-			&e.CinematicBannerURL, &e.Description, &lineup,
-			&e.Genre, &e.Price, &e.IsFeatured, &e.CreatedAt,
-			&e.GoingCount, &e.NotGoingCount, &e.UserRSVP,
-			&ticketTiers, &ticketSource, &ticketUrl, &ticketInfoFetchedAt,
-		); err != nil {
-			return nil, err
-		}
-		if len(lineup) > 0 {
-			var parsedLineup []string
-			if err := json.Unmarshal(lineup, &parsedLineup); err == nil {
-				e.Lineup = parsedLineup
-			}
-		}
-		if len(ticketTiers) > 0 {
-			var parsedTiers []domain.TicketTier
-			if err := json.Unmarshal(ticketTiers, &parsedTiers); err == nil {
-				e.TicketTiers = parsedTiers
-			}
-		}
-		if ticketSource.Valid {
-			e.TicketSource = &ticketSource.String
-		}
-		if ticketUrl.Valid {
-			e.TicketURL = &ticketUrl.String
-		}
-		if ticketInfoFetchedAt.Valid {
-			e.TicketInfoFetched = &ticketInfoFetchedAt.Time
-		}
-		events = append(events, e)
-	}
-
-	return events, nil
+	return scanEvents(rows)
 }
 
 func (r *EventRepository) UpdateEventTicketInfo(ctx context.Context, id string, tiers []domain.TicketTier, source *string) error {
@@ -622,14 +591,9 @@ func (r *EventRepository) UpdateEventTicketInfo(ctx context.Context, id string, 
 	return nil
 }
 
-func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin attendance confirmation: %w", err)
-	}
-	defer tx.Rollback()
+func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, int, error) {
 	query := `
-		SELECT e.id, e.title, e.producer_id, e.date, e.location,
+		SELECT e.id, e.title, e.producer_id, e.date, e.end_date, e.location, e.latitude, e.longitude,
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
@@ -641,8 +605,8 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		  AND er.status = 'going'
 		  AND e.latitude IS NOT NULL 
 		  AND e.longitude IS NOT NULL
-		  AND e.date >= NOW() - INTERVAL '12 hours' 
-		  AND e.date <= NOW() + INTERVAL '2 hours'
+		  AND NOW() >= e.date - INTERVAL '2 hours'
+		  AND NOW() <= COALESCE(e.end_date, e.date + INTERVAL '12 hours')
 		  AND (
 		    6371000 * acos(LEAST(1.0,GREATEST(-1.0,
 		      cos(radians($2)) * cos(radians(e.latitude)) *
@@ -656,26 +620,71 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 
 	rows, err := tx.QueryContext(ctx, query, userID, lat, lng)
 	if err != nil {
-		return nil, fmt.Errorf("querying live event: %w", err)
+		return nil, 0, fmt.Errorf("querying live event: %w", err)
 	}
 	defer rows.Close()
 
 	events, err := scanEvents(rows)
 	rows.Close()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if len(events) == 0 {
-		return nil, sql.ErrNoRows
+		return nil, 0, sql.ErrNoRows
 	}
 
-	// Only this server-validated geofence/time result grants a permanent collectible.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO event_attendance(user_id,event_id,source) VALUES($1,$2,'geofence') ON CONFLICT(user_id,event_id) DO NOTHING`, userID, events[0].ID); err != nil {
-		return nil, fmt.Errorf("confirm event attendance: %w", err)
+	event := &events[0]
+
+	// Fetch user steps for this event
+	var userSteps int
+	err = r.db.QueryRowContext(ctx, "SELECT COALESCE(steps_count, 0) FROM dance_sessions WHERE user_id = $1 AND event_id = $2", userID, event.ID).Scan(&userSteps)
+	if err != nil && err != sql.ErrNoRows {
+		// Just log or ignore, userSteps stays 0
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit event attendance: %w", err)
+
+	return event, userSteps, nil
+}
+
+func (r *EventRepository) BulkCreateEvents(ctx context.Context, events []domain.Event) error {
+	if len(events) == 0 {
+		return nil
 	}
-	return &events[0], nil
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning bulk create transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO events (id, title, date, location, latitude, longitude, cinematic_banner_url, description, lineup, is_featured, created_at)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+	`)
+	if err != nil {
+		return fmt.Errorf("preparing bulk insert statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, event := range events {
+		if event.Lineup == nil {
+			event.Lineup = []string{}
+		}
+		_, err := stmt.ExecContext(ctx,
+			event.Title,
+			event.Date,
+			event.Location,
+			event.Latitude,
+			event.Longitude,
+			event.CinematicBannerURL,
+			event.Description,
+			pq.Array(event.Lineup),
+			event.IsFeatured,
+		)
+		if err != nil {
+			return fmt.Errorf("inserting event %s: %w", event.Title, err)
+		}
+	}
+
+	return tx.Commit()
 }

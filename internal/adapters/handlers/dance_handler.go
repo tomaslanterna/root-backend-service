@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"root-backend-service/internal/core/ports"
 
@@ -34,6 +35,8 @@ func (h *DanceHandler) SyncSteps(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	log.Printf("Registrando %d pasos para el usuario %s en el evento %s", req.StepsCount, userID, req.EventID)
 
 	respondWithJSON(w, http.StatusOK, session)
 }
