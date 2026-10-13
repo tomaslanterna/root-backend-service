@@ -70,6 +70,38 @@ func (r *communityRepository) InitSchema(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_community_managers_user ON community_managers (user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_posts_community_timestamp ON posts (community_id, timestamp DESC, id) WHERE community_id IS NOT NULL`,
+		`CREATE TABLE IF NOT EXISTS community_chat_settings (
+			community_id UUID PRIMARY KEY REFERENCES communities(id) ON DELETE CASCADE,
+			mode TEXT NOT NULL DEFAULT 'broadcast_only' CHECK (mode IN ('broadcast_only', 'open_chat')),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_by UUID REFERENCES users(id) ON DELETE SET NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS community_messages (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			community_id UUID NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+			sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			content TEXT NOT NULL CHECK (char_length(BTRIM(content)) > 0 AND char_length(content) <= 4000),
+			timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_community_messages_stream ON community_messages (community_id, timestamp DESC, id DESC)`,
+		`CREATE TABLE IF NOT EXISTS community_message_reactions (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			message_id UUID NOT NULL REFERENCES community_messages(id) ON DELETE CASCADE,
+			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			emoji TEXT NOT NULL CHECK (char_length(BTRIM(emoji)) > 0 AND char_length(emoji) <= 16),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (message_id, user_id, emoji)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_community_reactions_message ON community_message_reactions (message_id)`,
+		`CREATE TABLE IF NOT EXISTS community_promoted_events (
+			community_id UUID NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+			event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+			added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			display_order INT NOT NULL DEFAULT 0,
+			PRIMARY KEY (community_id, event_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_community_promoted_events_comm ON community_promoted_events (community_id, display_order ASC, added_at DESC)`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
@@ -106,17 +138,14 @@ func communitySelect() string {
 			c.created_at, COALESCE(mc.members_count, 0),
 			(vm.user_id IS NOT NULL),
 			COALESCE((
-				EXISTS (SELECT 1 FROM users viewer WHERE viewer.id::text = $1 AND UPPER(viewer.role) = 'ADMIN')
+				EXISTS (SELECT 1 FROM users viewer WHERE viewer.id::text = $1 AND (UPPER(viewer.role) = 'ADMIN' OR UPPER(viewer.role) = 'RRPP'))
 				OR EXISTS (
 					SELECT 1 FROM users owner_user
 					WHERE owner_user.id = c.pr_owner_id AND owner_user.id::text = $1
-						AND UPPER(owner_user.role) = 'RRPP'
 				)
 				OR EXISTS (
 					SELECT 1 FROM community_managers manager
-					JOIN users manager_user ON manager_user.id = manager.user_id
 					WHERE manager.community_id = c.id AND manager.user_id::text = $1
-						AND UPPER(manager_user.role) = 'RRPP'
 				)
 			), FALSE),
 			c.is_active, COALESCE(vm.muted, FALSE),
@@ -322,17 +351,14 @@ func (r *communityRepository) CanPublish(ctx context.Context, communityID, userI
 	var exists, allowed bool
 	err := r.db.QueryRowContext(ctx, `
 		SELECT TRUE, COALESCE((
-			EXISTS (SELECT 1 FROM users u WHERE u.id::text = $2 AND UPPER(u.role) = 'ADMIN')
+			EXISTS (SELECT 1 FROM users u WHERE u.id::text = $2 AND (UPPER(u.role) = 'ADMIN' OR UPPER(u.role) = 'RRPP'))
 			OR EXISTS (
 				SELECT 1 FROM users owner_user
 				WHERE owner_user.id = c.pr_owner_id AND owner_user.id::text = $2
-					AND UPPER(owner_user.role) = 'RRPP'
 			)
 			OR EXISTS (
 				SELECT 1 FROM community_managers cm
-				JOIN users manager_user ON manager_user.id = cm.user_id
 				WHERE cm.community_id = c.id AND cm.user_id::text = $2
-					AND UPPER(manager_user.role) = 'RRPP'
 			)
 		), FALSE)
 		FROM communities c

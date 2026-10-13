@@ -154,6 +154,49 @@ func (r *danceRepository) GetUserCrews(ctx context.Context, userID string) ([]ma
 	return crews, nil
 }
 
+func (r *danceRepository) GetAllCrews(ctx context.Context) ([]map[string]interface{}, error) {
+	query := `
+		SELECT s.id, s.name, s.type, s.invite_code, s.status,
+		       (SELECT COUNT(*) FROM squad_members WHERE squad_id = s.id) as member_count,
+		       COALESCE(cr.top_steps, 0) as top_steps,
+		       0 as user_rank
+		FROM squads s
+		LEFT JOIN (
+			SELECT squad_id, MAX(total_steps) as top_steps
+			FROM crew_ranks
+			GROUP BY squad_id
+		) cr ON cr.squad_id = s.id
+		WHERE s.type = 'permanent'
+		ORDER BY s.created_at DESC
+	`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var crews []map[string]interface{}
+	for rows.Next() {
+		var id, name, crewType, status string
+		var inviteCode *string
+		var memberCount, topSteps, userRank int
+		if err := rows.Scan(&id, &name, &crewType, &inviteCode, &status, &memberCount, &topSteps, &userRank); err != nil {
+			return nil, err
+		}
+		crews = append(crews, map[string]interface{}{
+			"id":          id,
+			"name":        name,
+			"type":        crewType,
+			"inviteCode":  inviteCode,
+			"status":      status,
+			"memberCount": memberCount,
+			"topSteps":    topSteps,
+			"userRank":    userRank,
+		})
+	}
+	return crews, nil
+}
+
 func (r *danceRepository) GetUserDanceSessions(ctx context.Context, userID string) ([]map[string]interface{}, error) {
 	query := `
 		SELECT ds.id, ds.event_id, e.title, ds.steps_count, 

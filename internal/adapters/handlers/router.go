@@ -135,6 +135,23 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(AuthMiddleware).Get("/communities/{id}/reports", cfg.CommunityHandler.GetReports)
 		r.With(AuthMiddleware).Patch("/communities/{id}/reports/{reportID}", cfg.CommunityHandler.ReviewReport)
 
+		// Canal de Difusión & Configuración
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/chat-settings", cfg.CommunityHandler.GetChatSettings)
+		r.With(AuthMiddleware).Put("/communities/{id}/chat-settings", cfg.CommunityHandler.UpdateChatSettings)
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/messages", cfg.CommunityHandler.GetMessages)
+		r.With(AuthMiddleware).Post("/communities/{id}/messages", cfg.CommunityHandler.SendMessage)
+		r.With(AuthMiddleware).Post("/communities/{id}/messages/{messageId}/reactions", cfg.CommunityHandler.ToggleReaction)
+
+		// Directorio de Miembros
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/members", cfg.CommunityHandler.GetMembers)
+		r.With(AuthMiddleware).Delete("/communities/{id}/members/{userId}", cfg.CommunityHandler.KickMember)
+
+		// Eventos Promocionados (soporta /events y /promoted-events)
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/events", cfg.CommunityHandler.GetPromotedEvents)
+		r.With(AuthMiddleware).Put("/communities/{id}/events", cfg.CommunityHandler.UpdatePromotedEvents)
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/promoted-events", cfg.CommunityHandler.GetPromotedEvents)
+		r.With(AuthMiddleware).Put("/communities/{id}/promoted-events", cfg.CommunityHandler.UpdatePromotedEvents)
+
 		// 5. Crews Matcher (Event Squads)
 		r.Get("/crews/deck", cfg.CrewHandler.GetDeck)
 		r.Post("/crews/swipe", cfg.CrewHandler.Swipe) // Old fake endpoint
