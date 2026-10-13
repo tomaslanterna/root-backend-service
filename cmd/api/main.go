@@ -167,6 +167,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Could not start chat realtime listener: %v", err)
 	}
+	chatRealtime.SetCommunityRepository(communityRepo)
 	defer chatRealtime.Close()
 	transferHandler := handlers.NewTransferHandler(transferService)
 	surveyHandler := handlers.NewSurveyHandler(surveyService, eventService)

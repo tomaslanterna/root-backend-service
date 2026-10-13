@@ -108,6 +108,10 @@ func (s *danceService) GetUserCrews(ctx context.Context, userID string) ([]map[s
 	return s.danceRepo.GetUserCrews(ctx, userID)
 }
 
+func (s *danceService) GetAllCrews(ctx context.Context) ([]map[string]interface{}, error) {
+	return s.danceRepo.GetAllCrews(ctx)
+}
+
 func (s *danceService) GetUserDanceSessions(ctx context.Context, userID string) ([]map[string]interface{}, error) {
 	return s.danceRepo.GetUserDanceSessions(ctx, userID)
 }

@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
+
+	"github.com/google/uuid"
 )
 
 type CrewHandler struct{}
@@ -64,14 +68,29 @@ func (h *CrewHandler) GetMatches(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CrewHandler) CreatePermanentCrew(w http.ResponseWriter, r *http.Request) {
-	// For now, we return a mock successful response with an invite code
+	var body struct {
+		Name      string   `json:"name"`
+		Type      string   `json:"type"`
+		MemberIDs []string `json:"member_ids"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		name = "Nueva Crew"
+	}
+
+	crewID := uuid.New().String()
+	inviteCode := strings.ToUpper(uuid.New().String()[:8])
+
 	mockResponse := map[string]interface{}{
 		"success": true,
 		"crew": map[string]interface{}{
-			"id":          "perm_crew_1",
-			"name":        "My Dance Crew",
+			"id":          crewID,
+			"name":        name,
 			"type":        "permanent",
-			"invite_code": "DANCE2024",
+			"invite_code": inviteCode,
+			"member_ids":  body.MemberIDs,
 		},
 	}
 	respondWithJSON(w, http.StatusOK, mockResponse)

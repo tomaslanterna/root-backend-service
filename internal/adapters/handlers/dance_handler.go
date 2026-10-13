@@ -60,6 +60,20 @@ func (h *DanceHandler) GetCrewLeaderboards(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *DanceHandler) GetMyCrews(w http.ResponseWriter, r *http.Request) {
+	scope := r.URL.Query().Get("scope")
+	if scope == "all" {
+		crews, err := h.danceService.GetAllCrews(r.Context())
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to get crews")
+			return
+		}
+		if crews == nil {
+			crews = []map[string]interface{}{}
+		}
+		respondWithJSON(w, http.StatusOK, map[string]interface{}{"data": crews})
+		return
+	}
+
 	userID, ok := r.Context().Value(UserIDKey).(string)
 	if !ok || userID == "" {
 		respondWithError(w, http.StatusUnauthorized, "User not authenticated")

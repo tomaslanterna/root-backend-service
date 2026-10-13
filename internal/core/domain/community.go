@@ -6,10 +6,13 @@ import (
 )
 
 var (
-	ErrCommunityNotFound       = errors.New("community not found")
-	ErrCommunityForbidden      = errors.New("community publishing forbidden")
-	ErrCommunityInvalid        = errors.New("invalid community request")
-	ErrCommunityTargetNotFound = errors.New("community content not found")
+	ErrCommunityNotFound          = errors.New("community not found")
+	ErrCommunityForbidden         = errors.New("community publishing forbidden")
+	ErrCommunityInvalid           = errors.New("invalid community request")
+	ErrCommunityTargetNotFound    = errors.New("community content not found")
+	ErrCommunityCannotKickOwner   = errors.New("cannot kick community owner")
+	ErrCommunityReactionNotAllowed = errors.New("reactions only allowed on RRPP messages")
+	ErrCommunityChannelClosed     = errors.New("channel is closed for member messages")
 )
 
 type Community struct {
@@ -64,4 +67,40 @@ type CommunityFilter struct {
 	Offset     int
 	Scope      string
 	ViewerID   string
+}
+
+type CommunityChatSettings struct {
+	CommunityID string    `json:"communityId"`
+	Mode        string    `json:"mode"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	UpdatedBy   *string   `json:"updatedBy,omitempty"`
+}
+
+type CommunityChatReaction struct {
+	Emoji string   `json:"emoji"`
+	Count int      `json:"count"`
+	Users []string `json:"users"`
+}
+
+type CommunityChatMessage struct {
+	ID             string                  `json:"id"`
+	CommunityID    string                  `json:"communityId"`
+	SenderID       string                  `json:"senderId"`
+	SenderName     string                  `json:"senderName"`
+	SenderUsername string                  `json:"senderUsername,omitempty"`
+	SenderAvatar   string                  `json:"senderAvatar,omitempty"`
+	SenderRole     string                  `json:"senderRole"` // "RRPP" | "ADMIN" | "MEMBER"
+	Content        string                  `json:"content"`
+	Timestamp      time.Time               `json:"timestamp"`
+	Reactions      []CommunityChatReaction `json:"reactions"`
+}
+
+type CommunityMember struct {
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Username      string    `json:"username"`
+	AvatarURL     string    `json:"avatarUrl"`
+	Role          string    `json:"role"` // "RRPP" | "ADMIN" | "MEMBER"
+	JoinedAt      time.Time `json:"joinedAt"`
+	IsKYCVerified bool      `json:"isKycVerified"`
 }
