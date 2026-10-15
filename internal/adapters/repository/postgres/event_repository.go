@@ -617,7 +617,10 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		  AND e.latitude IS NOT NULL 
 		  AND e.longitude IS NOT NULL
 		  AND NOW() >= e.date - INTERVAL '2 hours'
-		  AND NOW() <= COALESCE(e.end_date, e.date + INTERVAL '12 hours')
+		  AND NOW() <= CASE 
+		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date 
+		      ELSE e.date + INTERVAL '12 hours' 
+		  END
 		  AND (
 		    6371000 * acos(
 		      cos(radians($2)) * cos(radians(e.latitude)) *
