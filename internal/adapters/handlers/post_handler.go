@@ -105,7 +105,7 @@ func (h *PostHandler) GetPostByID(w http.ResponseWriter, r *http.Request) {
 
 	post, err := h.postService.GetPostByID(r.Context(), postID, userID)
 	if err != nil {
-		if err.Error() == "post not found" {
+		if err.Error() == "post not found" || strings.Contains(err.Error(), "invalid input syntax for type uuid") {
 			http.Error(w, "Post not found", http.StatusNotFound)
 		} else {
 			http.Error(w, "Failed to retrieve post", http.StatusInternalServerError)
@@ -113,28 +113,35 @@ func (h *PostHandler) GetPostByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if post.HeaderImageURL != nil && *post.HeaderImageURL != "" && !strings.HasPrefix(*post.HeaderImageURL, "http") {
-		url, err := h.s3Service.GenerateViewUrl(r.Context(), *post.HeaderImageURL, 7*24*time.Hour)
-		if err == nil {
-			post.HeaderImageURL = &url
-		}
-	}
-	if post.AuthorAvatar != "" && !strings.HasPrefix(post.AuthorAvatar, "http") {
-		url, err := h.s3Service.GenerateViewUrl(r.Context(), post.AuthorAvatar, 7*24*time.Hour)
-		if err == nil {
-			post.AuthorAvatar = url
-		}
-	}
+	h.signPostMedia(r, post)
 
 	respondWithJSON(w, http.StatusOK, post)
 }
 
 func (h *PostHandler) LikePost(w http.ResponseWriter, r *http.Request) {
-	mockResponse := map[string]interface{}{
-		"success":    true,
-		"likesCount": 146,
+	postID := chi.URLParam(r, "id")
+	if postID == "" {
+		respondWithError(w, http.StatusBadRequest, "ID del post requerido")
+		return
 	}
-	respondWithJSON(w, http.StatusOK, mockResponse)
+
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "Usuario no autenticado")
+		return
+	}
+
+	liked, count, err := h.postService.ToggleLike(r.Context(), postID, userID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error al procesar me gusta: "+err.Error())
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success":    true,
+		"liked":      liked,
+		"likesCount": count,
+	})
 }
 
 func (h *PostHandler) GetPostComments(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +247,7 @@ func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.signPostMedia(r, post)
 	respondWithJSON(w, http.StatusCreated, post)
 }
 
@@ -387,8 +395,11 @@ func (h *PostHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// We return the key so the frontend can send it in the CreatePost request
+	viewURL, _ := h.s3Service.GenerateViewUrl(r.Context(), key, 7*24*time.Hour)
+
+	// We return the key and presigned view url
 	respondWithJSON(w, http.StatusOK, map[string]string{
 		"key": key,
+		"url": viewURL,
 	})
 }

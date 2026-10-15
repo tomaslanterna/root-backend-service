@@ -22,7 +22,7 @@ func (s *postRepositoryForCommunityStub) GetFeaturedPosts(context.Context, int, 
 func (s *postRepositoryForCommunityStub) GetFollowingPosts(context.Context, string, int, int) ([]domain.Post, error) {
 	return nil, nil
 }
-func (s *postRepositoryForCommunityStub) GetPostByID(context.Context, string) (*domain.Post, error) {
+func (s *postRepositoryForCommunityStub) GetPostByID(context.Context, string, string) (*domain.Post, error) {
 	return s.created, nil
 }
 func (s *postRepositoryForCommunityStub) GetCommunityPosts(context.Context, string, int, int) ([]domain.Post, int, error) {
@@ -40,6 +40,9 @@ func (s *postRepositoryForCommunityStub) GetPostComments(context.Context, string
 }
 func (s *postRepositoryForCommunityStub) CreatePostComment(context.Context, string, string, string) (*domain.EventComment, error) {
 	return nil, nil
+}
+func (s *postRepositoryForCommunityStub) ToggleLike(context.Context, string, string) (bool, int, error) {
+	return false, 0, nil
 }
 
 type communityRepositoryForPostStub struct {

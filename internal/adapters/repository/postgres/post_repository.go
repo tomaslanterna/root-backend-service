@@ -129,21 +129,24 @@ func (r *postRepository) GetFollowingPosts(ctx context.Context, userID string, l
 	return posts, nil
 }
 
-func (r *postRepository) GetPostByID(ctx context.Context, id string) (*domain.Post, error) {
+func (r *postRepository) GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error) {
 	query := `
 		SELECT 
 			p.id, p.author_id, p.event_id, p.community_id, p.title, p.content, p.long_content, 
 			p.header_image_url, p.timestamp, p.is_featured,
-			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
+			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false),
+			COALESCE((SELECT COUNT(*) FROM post_likes WHERE post_id = p.id), 0) AS likes_count,
+			EXISTS(SELECT 1 FROM post_likes WHERE post_id = p.id AND user_id::text = $2) AS is_liked
 		FROM posts p
 		LEFT JOIN users u ON p.author_id = u.id
 		WHERE p.id = $1
 	`
 	var p domain.Post
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
+	err := r.db.QueryRowContext(ctx, query, id, currentUserID).Scan(
 		&p.ID, &p.AuthorID, &p.EventID, &p.CommunityID, &p.Title,
 		&p.Content, &p.LongContent, &p.HeaderImageURL, &p.Timestamp, &p.IsFeatured,
 		&p.AuthorName, &p.AuthorAvatar, &p.IsVerified,
+		&p.LikesCount, &p.IsLiked,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -152,8 +155,47 @@ func (r *postRepository) GetPostByID(ctx context.Context, id string) (*domain.Po
 		return nil, err
 	}
 	p.Tags = []string{}
-	p.LikesCount = 0 // Temporal hardcode
 	return &p, nil
+}
+
+func (r *postRepository) ToggleLike(ctx context.Context, postID, userID string) (bool, int, error) {
+	_, _ = r.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS post_likes (
+			post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+			user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			PRIMARY KEY (post_id, user_id)
+		)
+	`)
+
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2)`, postID, userID).Scan(&exists)
+	if err != nil {
+		return false, 0, fmt.Errorf("checking like: %w", err)
+	}
+
+	liked := false
+	if exists {
+		_, err = r.db.ExecContext(ctx, `DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2`, postID, userID)
+		if err != nil {
+			return false, 0, fmt.Errorf("deleting like: %w", err)
+		}
+		liked = false
+	} else {
+		_, err = r.db.ExecContext(ctx, `INSERT INTO post_likes (post_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, postID, userID)
+		if err != nil {
+			return false, 0, fmt.Errorf("inserting like: %w", err)
+		}
+		liked = true
+	}
+
+	var count int
+	err = r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM post_likes WHERE post_id = $1`, postID).Scan(&count)
+	if err != nil {
+		return liked, 0, fmt.Errorf("counting likes: %w", err)
+	}
+
+	return liked, count, nil
 }
 
 func (r *postRepository) GetCommunityPosts(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error) {

@@ -64,6 +64,19 @@ func (h *SurveyHandler) SubmitSurvey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verificar que el evento haya terminado antes de permitir la encuesta
+	event, err := h.eventService.GetEventByID(r.Context(), eventID, userID)
+	if err == nil && event != nil {
+		endTime := event.Date.Add(4 * time.Hour)
+		if event.EndDate != nil && event.EndDate.After(event.Date) {
+			endTime = *event.EndDate
+		}
+		if time.Now().Before(endTime) {
+			respondWithError(w, http.StatusBadRequest, "La encuesta estará disponible una vez que la fiesta haya finalizado")
+			return
+		}
+	}
+
 	surveyID := uuid.NewString()
 
 	surveyDomain := &domain.EventSurvey{
@@ -91,7 +104,7 @@ func (h *SurveyHandler) SubmitSurvey(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	err := h.surveyService.SubmitSurvey(r.Context(), surveyDomain, artistRatings)
+	err = h.surveyService.SubmitSurvey(r.Context(), surveyDomain, artistRatings)
 	if err != nil {
 		if err.Error() == "user already submitted a survey for this event" {
 			respondWithError(w, http.StatusConflict, err.Error())

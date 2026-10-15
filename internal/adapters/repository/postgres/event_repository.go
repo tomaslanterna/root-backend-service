@@ -3,11 +3,13 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
-	"strings"
 
 	"github.com/lib/pq"
 )
@@ -510,17 +512,34 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 		FROM events e
 		JOIN event_rsvps ur ON ur.event_id = e.id
 		WHERE ur.user_id::text = $1 AND ur.status = 'going'
-		  AND e.date < CURRENT_TIMESTAMP
+		  AND NOW() >= CASE 
+		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date 
+		      ELSE e.date + INTERVAL '4 hours' 
+		  END
 		  AND NOT EXISTS (
 			  SELECT 1 FROM event_surveys es 
 			  WHERE es.event_id = e.id AND es.user_id::text = $2
 		  )
+		ORDER BY e.date DESC
 	`, userID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("querying pending surveys: %w", err)
 	}
 	defer rows.Close()
-	return scanEvents(rows)
+
+	events, err := scanEvents(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range events {
+		if events[i].EndDate == nil || !events[i].EndDate.After(events[i].Date) {
+			fallbackEnd := events[i].Date.Add(4 * time.Hour)
+			events[i].EndDate = &fallbackEnd
+		}
+	}
+
+	return events, nil
 }
 
 func (r *EventRepository) GetUserEvents(ctx context.Context, username string) ([]domain.Event, error) {
@@ -598,7 +617,10 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		  AND e.latitude IS NOT NULL 
 		  AND e.longitude IS NOT NULL
 		  AND NOW() >= e.date - INTERVAL '2 hours'
-		  AND NOW() <= COALESCE(e.end_date, e.date + INTERVAL '12 hours')
+		  AND NOW() <= CASE 
+		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date 
+		      ELSE e.date + INTERVAL '12 hours' 
+		  END
 		  AND (
 		    6371000 * acos(
 		      cos(radians($2)) * cos(radians(e.latitude)) *

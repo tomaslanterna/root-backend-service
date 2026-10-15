@@ -408,6 +408,7 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 			"id":         event.ID,
 			"title":      event.Title,
 			"date":       event.Date,
+			"endDate":    event.EndDate,
 			"bannerUrl":  event.CinematicBannerURL,
 			"latitude":   event.Latitude,
 			"longitude":  event.Longitude,

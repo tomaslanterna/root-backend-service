@@ -21,5 +21,6 @@ type Post struct {
 	AuthorAvatar string   `json:"authorAvatar"`
 	IsVerified   bool     `json:"isVerified"`
 	LikesCount   int      `json:"likesCount"`
+	IsLiked      bool     `json:"isLiked"`
 	Tags         []string `json:"tags"`
 }
