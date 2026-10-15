@@ -71,6 +71,7 @@ type PostService interface {
 	CreateCommunityAnnouncement(ctx context.Context, communityID, authorID string, post *domain.Post) (*domain.Post, error)
 	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
+	ToggleLike(ctx context.Context, postID, userID string) (liked bool, count int, err error)
 }
 
 type CommunityService interface {

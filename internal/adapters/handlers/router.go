@@ -88,7 +88,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(OptionalAuthMiddleware).Get("/posts/{id}", cfg.PostHandler.GetPostByID)
 		r.With(AuthMiddleware).Post("/posts", cfg.PostHandler.CreatePost)
 		r.With(AuthMiddleware).Post("/posts/image", cfg.PostHandler.UploadImage)
-		r.Post("/posts/{id}/like", cfg.PostHandler.LikePost)
+		r.With(AuthMiddleware).Post("/posts/{id}/like", cfg.PostHandler.LikePost)
 		r.Route("/posts/{id}/comments", func(r chi.Router) {
 			r.Get("/", cfg.PostHandler.GetPostComments)
 			r.With(AuthMiddleware).Post("/", cfg.PostHandler.CommentPost)
