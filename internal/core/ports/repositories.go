@@ -75,9 +75,10 @@ type PostRepository interface {
 	GetGlobalPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
 	GetFeaturedPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
 	GetFollowingPosts(ctx context.Context, userID string, limit, offset int) ([]domain.Post, error)
-	GetPostByID(ctx context.Context, id string) (*domain.Post, error)
+	GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error)
 	GetCommunityPosts(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error)
 	CreatePost(ctx context.Context, post *domain.Post) error
+	ToggleLike(ctx context.Context, postID, userID string) (liked bool, count int, err error)
 
 	// Comments
 	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
@@ -99,6 +100,16 @@ type CommunityRepository interface {
 	GetUserCommunities(ctx context.Context, username, currentUserID string) ([]domain.Community, error)
 	GetCurrentUserCommunities(ctx context.Context, userID string) ([]domain.Community, error)
 	CanPublish(ctx context.Context, communityID, userID string) (exists bool, allowed bool, err error)
+	GetChatSettings(ctx context.Context, communityID string) (*domain.CommunityChatSettings, error)
+	UpdateChatSettings(ctx context.Context, communityID, userID, mode string) (*domain.CommunityChatSettings, error)
+	GetCommunityMessages(ctx context.Context, communityID string, limit int, before string) ([]domain.CommunityChatMessage, error)
+	SendCommunityMessage(ctx context.Context, communityID, senderID, content string) (*domain.CommunityChatMessage, error)
+	ToggleMessageReaction(ctx context.Context, communityID, messageID, userID, emoji string) ([]domain.CommunityChatReaction, error)
+	GetCommunityMembers(ctx context.Context, communityID string, limit, offset int, query string) ([]domain.CommunityMember, int, error)
+	KickCommunityMember(ctx context.Context, communityID, targetUserID string) (remainingCount int, err error)
+	GetPromotedEvents(ctx context.Context, communityID string) ([]domain.Event, error)
+	UpdatePromotedEvents(ctx context.Context, communityID string, eventIDs []string) ([]domain.Event, error)
+	GetActiveCommunityMemberIDs(ctx context.Context, communityID string) ([]string, error)
 }
 
 type DanceRepository interface {
@@ -106,6 +117,7 @@ type DanceRepository interface {
 	GetCrewLeaderboardAllTime(ctx context.Context, squadID string) ([]map[string]interface{}, error)
 	GetCrewLeaderboardByEvent(ctx context.Context, squadID, eventID string) ([]map[string]interface{}, error)
 	GetUserCrews(ctx context.Context, userID string) ([]map[string]interface{}, error)
+	GetAllCrews(ctx context.Context) ([]map[string]interface{}, error)
 	GetUserDanceSessions(ctx context.Context, userID string) ([]map[string]interface{}, error)
 	GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error)
 	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)

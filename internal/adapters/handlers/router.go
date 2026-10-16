@@ -113,7 +113,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(OptionalAuthMiddleware).Get("/posts/{id}", cfg.PostHandler.GetPostByID)
 		r.With(AuthMiddleware).Post("/posts", cfg.PostHandler.CreatePost)
 		r.With(AuthMiddleware).Post("/posts/image", cfg.PostHandler.UploadImage)
-		r.Post("/posts/{id}/like", cfg.PostHandler.LikePost)
+		r.With(AuthMiddleware).Post("/posts/{id}/like", cfg.PostHandler.LikePost)
 		r.Route("/posts/{id}/comments", func(r chi.Router) {
 			r.Get("/", cfg.PostHandler.GetPostComments)
 			r.With(AuthMiddleware).Post("/", cfg.PostHandler.CommentPost)
@@ -149,6 +149,23 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(AuthMiddleware).Post("/communities/{id}/reports", cfg.CommunityHandler.CreateReport)
 		r.With(AuthMiddleware).Get("/communities/{id}/reports", cfg.CommunityHandler.GetReports)
 		r.With(AuthMiddleware).Patch("/communities/{id}/reports/{reportID}", cfg.CommunityHandler.ReviewReport)
+
+		// Canal de Difusión & Configuración
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/chat-settings", cfg.CommunityHandler.GetChatSettings)
+		r.With(AuthMiddleware).Put("/communities/{id}/chat-settings", cfg.CommunityHandler.UpdateChatSettings)
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/messages", cfg.CommunityHandler.GetMessages)
+		r.With(AuthMiddleware).Post("/communities/{id}/messages", cfg.CommunityHandler.SendMessage)
+		r.With(AuthMiddleware).Post("/communities/{id}/messages/{messageId}/reactions", cfg.CommunityHandler.ToggleReaction)
+
+		// Directorio de Miembros
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/members", cfg.CommunityHandler.GetMembers)
+		r.With(AuthMiddleware).Delete("/communities/{id}/members/{userId}", cfg.CommunityHandler.KickMember)
+
+		// Eventos Promocionados (soporta /events y /promoted-events)
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/events", cfg.CommunityHandler.GetPromotedEvents)
+		r.With(AuthMiddleware).Put("/communities/{id}/events", cfg.CommunityHandler.UpdatePromotedEvents)
+		r.With(OptionalAuthMiddleware).Get("/communities/{id}/promoted-events", cfg.CommunityHandler.GetPromotedEvents)
+		r.With(AuthMiddleware).Put("/communities/{id}/promoted-events", cfg.CommunityHandler.UpdatePromotedEvents)
 
 		// 5. Crews Matcher (Event Squads)
 		r.Get("/crews/deck", cfg.CrewHandler.GetDeck)

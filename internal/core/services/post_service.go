@@ -106,7 +106,11 @@ func (s *postService) GetFeeds(ctx context.Context, userID string, includeFeeds 
 }
 
 func (s *postService) GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error) {
-	return s.postRepo.GetPostByID(ctx, id)
+	return s.postRepo.GetPostByID(ctx, id, currentUserID)
+}
+
+func (s *postService) ToggleLike(ctx context.Context, postID, userID string) (bool, int, error) {
+	return s.postRepo.ToggleLike(ctx, postID, userID)
 }
 
 func (s *postService) GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error) {
@@ -184,7 +188,7 @@ func (s *postService) CreateCommunityAnnouncement(ctx context.Context, community
 	if err := s.postRepo.CreatePost(ctx, post); err != nil {
 		return nil, err
 	}
-	created, err := s.postRepo.GetPostByID(ctx, post.ID)
+	created, err := s.postRepo.GetPostByID(ctx, post.ID, authorID)
 	if err != nil {
 		return nil, err
 	}

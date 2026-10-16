@@ -17,10 +17,13 @@ import (
 )
 
 type chatEvent struct {
-	Type      string          `json:"type"`
-	ChatID    string          `json:"chat_id,omitempty"`
-	MessageID string          `json:"message_id,omitempty"`
-	Message   *domain.Message `json:"message,omitempty"`
+	Type        string                         `json:"type"`
+	ChatID      string                         `json:"chat_id,omitempty"`
+	MessageID   string                         `json:"message_id,omitempty"`
+	Message     interface{}                    `json:"message,omitempty"`
+	CommunityID string                         `json:"community_id,omitempty"`
+	Reactions   []domain.CommunityChatReaction `json:"reactions,omitempty"`
+	Mode        string                         `json:"mode,omitempty"`
 }
 
 type chatConnection struct {
@@ -47,14 +50,15 @@ func (c *chatConnection) enqueue(event chatEvent) {
 // Every process listens to PostgreSQL; notifications are emitted only after commit.
 // No participant IDs or JWTs are carried in the notification payload.
 type ChatRealtime struct {
-	service  ports.ChatService
-	chats    ports.ChatRepository
-	messages ports.MessageRepository
-	listener *pq.Listener
-	mu       sync.Mutex
-	clients  map[string]map[*chatConnection]struct{}
-	done     chan struct{}
-	once     sync.Once
+	service     ports.ChatService
+	chats       ports.ChatRepository
+	messages    ports.MessageRepository
+	communities ports.CommunityRepository
+	listener    *pq.Listener
+	mu          sync.Mutex
+	clients     map[string]map[*chatConnection]struct{}
+	done        chan struct{}
+	once        sync.Once
 }
 
 func NewChatRealtime(service ports.ChatService, chats ports.ChatRepository, messages ports.MessageRepository, connectionString string) (*ChatRealtime, error) {
@@ -64,9 +68,17 @@ func NewChatRealtime(service ports.ChatService, chats ports.ChatRepository, mess
 		h.listener.Close()
 		return nil, err
 	}
+	_ = h.listener.Listen("root_community_events")
 	go h.listen()
 	return h, nil
 }
+
+func (h *ChatRealtime) SetCommunityRepository(repo ports.CommunityRepository) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.communities = repo
+}
+
 func (h *ChatRealtime) Close() {
 	h.once.Do(func() {
 		close(h.done)
@@ -92,6 +104,18 @@ func (h *ChatRealtime) listen() {
 		case notification := <-h.listener.Notify:
 			if notification == nil {
 				h.broadcastResync()
+				continue
+			}
+			if notification.Channel == "root_community_events" {
+				var raw struct {
+					Type        string `json:"type"`
+					CommunityID string `json:"community_id"`
+					MessageID   string `json:"message_id"`
+					Mode        string `json:"mode"`
+				}
+				if json.Unmarshal([]byte(notification.Extra), &raw) == nil {
+					h.dispatchCommunity(raw.Type, raw.CommunityID, raw.MessageID, raw.Mode)
+				}
 				continue
 			}
 			var event chatEvent
@@ -150,6 +174,62 @@ func (h *ChatRealtime) dispatch(event chatEvent) {
 		for _, c := range connections {
 			c.enqueue(personalized)
 		}
+	}
+}
+
+func (h *ChatRealtime) dispatchCommunity(eventType, communityID, messageID, mode string) {
+	h.mu.Lock()
+	repo := h.communities
+	h.mu.Unlock()
+	if repo == nil || communityID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	memberIDs, err := repo.GetActiveCommunityMemberIDs(ctx, communityID)
+	if err != nil || len(memberIDs) == 0 {
+		return
+	}
+
+	h.mu.Lock()
+	var targetConnections []*chatConnection
+	for _, memberID := range memberIDs {
+		for conn := range h.clients[memberID] {
+			targetConnections = append(targetConnections, conn)
+		}
+	}
+	h.mu.Unlock()
+
+	if len(targetConnections) == 0 {
+		return
+	}
+
+	event := chatEvent{
+		Type:        eventType,
+		CommunityID: communityID,
+	}
+
+	switch eventType {
+	case "community.message.created":
+		msgs, err := repo.GetCommunityMessages(ctx, communityID, 1, "id:"+messageID)
+		if err != nil || len(msgs) == 0 {
+			return
+		}
+		event.Message = msgs[0]
+	case "community.reaction.updated":
+		event.MessageID = messageID
+		msgs, err := repo.GetCommunityMessages(ctx, communityID, 1, "id:"+messageID)
+		if err != nil || len(msgs) == 0 {
+			return
+		}
+		event.Reactions = msgs[0].Reactions
+	case "community.chat_mode.updated":
+		event.Mode = mode
+	}
+
+	for _, c := range targetConnections {
+		c.enqueue(event)
 	}
 }
 

@@ -71,6 +71,7 @@ type PostService interface {
 	CreateCommunityAnnouncement(ctx context.Context, communityID, authorID string, post *domain.Post) (*domain.Post, error)
 	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
+	ToggleLike(ctx context.Context, postID, userID string) (liked bool, count int, err error)
 }
 
 type CommunityService interface {
@@ -86,6 +87,15 @@ type CommunityService interface {
 	LeaveCommunity(ctx context.Context, communityID, userID string) (membersCount int, err error)
 	GetUserCommunities(ctx context.Context, username, currentUserID string) ([]domain.Community, error)
 	GetCurrentUserCommunities(ctx context.Context, userID string) ([]domain.Community, error)
+	GetChatSettings(ctx context.Context, communityID string) (*domain.CommunityChatSettings, error)
+	UpdateChatSettings(ctx context.Context, communityID, userID, mode string) (*domain.CommunityChatSettings, error)
+	GetCommunityMessages(ctx context.Context, communityID, userID string, limit int, before string) ([]domain.CommunityChatMessage, error)
+	SendCommunityMessage(ctx context.Context, communityID, userID, content string) (*domain.CommunityChatMessage, error)
+	ToggleMessageReaction(ctx context.Context, communityID, messageID, userID, emoji string) ([]domain.CommunityChatReaction, error)
+	GetCommunityMembers(ctx context.Context, communityID string, limit, offset int, query string) ([]domain.CommunityMember, int, error)
+	KickCommunityMember(ctx context.Context, communityID, actorUserID, targetUserID string) (remainingCount int, err error)
+	GetPromotedEvents(ctx context.Context, communityID, userID string) ([]domain.Event, error)
+	UpdatePromotedEvents(ctx context.Context, communityID, userID string, eventIDs []string) ([]domain.Event, error)
 }
 
 type SyncDanceRequest struct {
@@ -101,6 +111,7 @@ type DanceService interface {
 	SyncSteps(ctx context.Context, userID string, req SyncDanceRequest) (*domain.DanceSession, error)
 	GetCrewLeaderboards(ctx context.Context, squadID string, eventID *string) (map[string]interface{}, error)
 	GetUserCrews(ctx context.Context, userID string) ([]map[string]interface{}, error)
+	GetAllCrews(ctx context.Context) ([]map[string]interface{}, error)
 	GetUserDanceSessions(ctx context.Context, userID string) ([]map[string]interface{}, error)
 	GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error)
 	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)

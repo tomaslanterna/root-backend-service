@@ -407,12 +407,13 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 		"attendanceConfirmed": true,
     "userSteps": userSteps,
 		"event": map[string]interface{}{
-			"id":        event.ID,
-			"title":     event.Title,
-			"date":      event.Date,
-			"bannerUrl": event.CinematicBannerURL,
-			"latitude":  event.Latitude,
-			"longitude": event.Longitude,
+			"id":         event.ID,
+			"title":      event.Title,
+			"date":       event.Date,
+			"endDate":    event.EndDate,
+			"bannerUrl":  event.CinematicBannerURL,
+			"latitude":   event.Latitude,
+			"longitude":  event.Longitude,
 		},
 	})
 }

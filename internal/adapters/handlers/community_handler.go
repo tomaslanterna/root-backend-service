@@ -169,6 +169,12 @@ func respondWithCommunityError(w http.ResponseWriter, err error) {
 		respondWithError(w, http.StatusNotFound, "Comunidad no encontrada")
 	case errors.Is(err, domain.ErrCommunityForbidden):
 		respondWithError(w, http.StatusForbidden, "No tenés permiso para esta acción en la comunidad")
+	case errors.Is(err, domain.ErrCommunityChannelClosed):
+		respondWithError(w, http.StatusForbidden, "Solo el administrador puede enviar mensajes en este canal")
+	case errors.Is(err, domain.ErrCommunityReactionNotAllowed):
+		respondWithError(w, http.StatusBadRequest, "Solo se puede reaccionar a comunicados oficiales del RRPP")
+	case errors.Is(err, domain.ErrCommunityCannotKickOwner):
+		respondWithError(w, http.StatusBadRequest, "No se puede expulsar al propietario de la comunidad")
 	case errors.Is(err, domain.ErrCommunityInvalid):
 		respondWithError(w, http.StatusBadRequest, "Solicitud de comunidad inválida")
 	case errors.Is(err, domain.ErrCommunityTargetNotFound):
