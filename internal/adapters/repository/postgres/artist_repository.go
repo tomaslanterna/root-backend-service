@@ -35,7 +35,7 @@ func (r *ArtistRepository) InitSchema(ctx context.Context) error {
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name)`,
-		
+
 		`CREATE TABLE IF NOT EXISTS event_artists (
 			event_id UUID NOT NULL,
 			artist_id UUID NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
@@ -62,7 +62,7 @@ func (r *ArtistRepository) GetEventLineup(ctx context.Context, eventID string) (
 		FROM event_artists ea
 		JOIN artists a ON ea.artist_id = a.id
 		WHERE ea.event_id::text = $1
-		ORDER BY ea.performance_time ASC NULLS LAST
+		ORDER BY ea.performance_time ASC NULLS LAST,ea.artist_id ASC
 	`, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("querying event lineup: %w", err)

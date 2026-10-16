@@ -21,6 +21,9 @@ type RouterConfig struct {
 	ChatHandler      *ChatHandler
 	TransferHandler  *TransferHandler
 	SurveyHandler    *SurveyHandler
+	BadgeHandler     *BadgeHandler
+	BadgeMedia       *BadgeMediaHandler
+	ReviewReminder   *ReviewReminderHandler
 	AIHandler        *AIHandler
 	MatchHandler     *MatchHandler
 	DanceHandler     *DanceHandler
@@ -59,6 +62,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	})
 
 	r.Route("/v1", func(r chi.Router) {
+		if cfg.BadgeMedia != nil {
+			r.Get("/events/{id}/badge/flyer", cfg.BadgeMedia.Image)
+			r.Get("/events/{id}/badge/artists/{artistID}/image", cfg.BadgeMedia.Image)
+		}
+		if cfg.ReviewReminder != nil {
+			r.With(AuthMiddleware).Post("/events/{id}/attendance/checkout", cfg.ReviewReminder.Checkout)
+			r.With(AuthMiddleware).Post("/users/me/review-reminder/open", cfg.ReviewReminder.Open)
+		}
 		if cfg.PushHandler != nil {
 			r.With(AuthMiddleware).Get("/push/status", cfg.PushHandler.Status)
 			r.With(AuthMiddleware).Put("/push/devices/{id}", cfg.PushHandler.Register)
@@ -83,6 +94,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(OptionalAuthMiddleware).Get("/users/{username}", cfg.UserHandler.GetUser)
 		r.With(OptionalAuthMiddleware).Get("/users/{username}/communities", cfg.CommunityHandler.GetUserCommunities)
 		r.With(OptionalAuthMiddleware).Get("/users/{username}/events", cfg.EventHandler.GetUserEvents)
+		if cfg.BadgeHandler != nil {
+			r.With(OptionalAuthMiddleware).Get("/users/{username}/badges", cfg.BadgeHandler.List)
+			r.With(AuthMiddleware).Get("/events/{id}/badge", cfg.BadgeHandler.Get)
+		}
 
 		r.Group(func(r chi.Router) {
 			r.Use(AuthMiddleware)

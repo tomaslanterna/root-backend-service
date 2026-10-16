@@ -22,6 +22,8 @@ type Event struct {
 	Date                 time.Time     `json:"date"`
 	EndDate              *time.Time    `json:"endDate,omitempty"`
 	Location             string        `json:"location"`
+	Department           *string       `json:"department,omitempty"`
+	Country              *string       `json:"country,omitempty"`
 	Latitude             *float64      `json:"latitude,omitempty"`
 	Longitude            *float64      `json:"longitude,omitempty"`
 	GeofenceRadiusMeters *int          `json:"geofenceRadiusMeters,omitempty"`

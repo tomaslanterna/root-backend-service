@@ -26,7 +26,7 @@ func NewDanceService(danceRepo ports.DanceRepository, eventRepo ports.EventRepos
 // haversine calculates the distance between two points in meters
 func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 	const R = 6371000 // Earth radius in meters
-	
+
 	phi1 := lat1 * math.Pi / 180
 	phi2 := lat2 * math.Pi / 180
 	deltaPhi := (lat2 - lat1) * math.Pi / 180
@@ -41,30 +41,19 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 }
 
 func (s *danceService) SyncSteps(ctx context.Context, userID string, req ports.SyncDanceRequest) (*domain.DanceSession, error) {
-	// Validate event exists and get its coordinates
-	event, err := s.eventRepo.GetEventByID(ctx, req.EventID, userID)
+	if req.StepsCount < 0 || math.IsNaN(req.Lat) || math.IsNaN(req.Lng) || math.IsInf(req.Lat, 0) || math.IsInf(req.Lng, 0) || req.Lat < -90 || req.Lat > 90 || req.Lng < -180 || req.Lng > 180 {
+		return nil, errors.New("invalid dance synchronization")
+	}
+	// Reuse the same authoritative time/geofence/RSVP check as the presence banner.
+	// Do not trust arbitrary event IDs, client timestamps or missing venue coordinates.
+	event, err := s.eventRepo.GetLiveEventStatus(ctx, userID, req.Lat, req.Lng)
 	if err != nil {
-		return nil, errors.New("event not found")
+		return nil, err
 	}
-
-	isValidated := false
-
-	// Validate location using Haversine
-	if event.Latitude != nil && event.Longitude != nil {
-		radius := 200 // default
-		if event.GeofenceRadiusMeters != nil {
-			radius = *event.GeofenceRadiusMeters
-		}
-
-		dist := haversine(req.Lat, req.Lng, *event.Latitude, *event.Longitude)
-		if dist <= float64(radius) {
-			isValidated = true
-		}
-	} else {
-		// If event has no location, we might trust the device for now or reject. 
-		// Let's validate it to true for backward compatibility or mock events.
-		isValidated = true
+	if event == nil || event.ID != req.EventID {
+		return nil, errors.New("attendance not confirmed for this event")
 	}
+	isValidated := true
 
 	session := &domain.DanceSession{
 		ID:          uuid.New().String(),

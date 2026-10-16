@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"fmt"
 	"log"
 	"net/http"
@@ -372,7 +373,7 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 
 	latStr := r.URL.Query().Get("lat")
 	lngStr := r.URL.Query().Get("lng")
-	
+
 	if latStr == "" || lngStr == "" {
 		respondWithError(w, http.StatusBadRequest, "lat y lng son requeridos")
 		return
@@ -380,8 +381,8 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 
 	lat, errLat := strconv.ParseFloat(latStr, 64)
 	lng, errLng := strconv.ParseFloat(lngStr, 64)
-	
-	if errLat != nil || errLng != nil {
+
+	if errLat != nil || errLng != nil || math.IsNaN(lat) || math.IsNaN(lng) || math.IsInf(lat, 0) || math.IsInf(lng, 0) || lat < -90 || lat > 90 || lng < -180 || lng > 180 {
 		respondWithError(w, http.StatusBadRequest, "lat y lng deben ser números válidos")
 		return
 	}
@@ -402,8 +403,9 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 	h.enrichEventImage(r.Context(), event)
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"isLive": true,
-		"userSteps": userSteps,
+		"isLive":              true,
+		"attendanceConfirmed": true,
+    "userSteps": userSteps,
 		"event": map[string]interface{}{
 			"id":         event.ID,
 			"title":      event.Title,

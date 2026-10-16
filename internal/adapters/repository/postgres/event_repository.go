@@ -39,6 +39,8 @@ func (r *EventRepository) InitSchema(ctx context.Context) error {
 
 	statements := []string{
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS genre VARCHAR(100)`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS department TEXT`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS country TEXT`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS price NUMERIC(10,2)`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_tiers JSONB`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_source TEXT`,
@@ -236,6 +238,10 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 	}
 	if len(events) == 0 {
 		return nil, sql.ErrNoRows
+	}
+	rows.Close()
+	if err := r.db.QueryRowContext(ctx, `SELECT NULLIF(to_jsonb(e)->>'department',''),NULLIF(to_jsonb(e)->>'country','') FROM events e WHERE id=$1`, id).Scan(&events[0].Department, &events[0].Country); err != nil {
+		return nil, fmt.Errorf("reading event location metadata: %w", err)
 	}
 	return &events[0], nil
 }
@@ -622,23 +628,24 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		      ELSE e.date + INTERVAL '12 hours' 
 		  END
 		  AND (
-		    6371000 * acos(
+		    6371000 * acos(LEAST(1.0,GREATEST(-1.0,
 		      cos(radians($2)) * cos(radians(e.latitude)) *
 		      cos(radians(e.longitude) - radians($3)) +
 		      sin(radians($2)) * sin(radians(e.latitude))
-		    )
+		    )))
 		  ) <= COALESCE(e.geofence_radius_meters, 300)
 		ORDER BY e.date ASC
 		LIMIT 1
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, userID, lat, lng)
+	rows, err := tx.QueryContext(ctx, query, userID, lat, lng)
 	if err != nil {
 		return nil, 0, fmt.Errorf("querying live event: %w", err)
 	}
 	defer rows.Close()
 
 	events, err := scanEvents(rows)
+	rows.Close()
 	if err != nil {
 		return nil, 0, err
 	}
