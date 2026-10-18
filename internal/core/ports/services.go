@@ -107,8 +107,19 @@ type SyncDanceRequest struct {
 	Lng        float64   `json:"lng"`
 }
 
+type CreateCrewRequest struct {
+	Name      string   `json:"name"`
+	Type      string   `json:"type"`
+	MemberIDs []string `json:"member_ids"`
+	EventID   *string  `json:"event_id,omitempty"`
+	EventIDs  []string `json:"event_ids,omitempty"`
+}
+
 type DanceService interface {
 	SyncSteps(ctx context.Context, userID string, req SyncDanceRequest) (*domain.DanceSession, error)
+	CreatePermanentCrew(ctx context.Context, creatorID string, req CreateCrewRequest) (map[string]interface{}, error)
+	JoinPermanentCrew(ctx context.Context, userID, codeOrID string) (map[string]interface{}, error)
+	AddCrewEvent(ctx context.Context, squadID, eventID, userID string) error
 	GetCrewLeaderboards(ctx context.Context, squadID string, eventID *string) (map[string]interface{}, error)
 	GetUserCrews(ctx context.Context, userID string) ([]map[string]interface{}, error)
 	GetAllCrews(ctx context.Context) ([]map[string]interface{}, error)

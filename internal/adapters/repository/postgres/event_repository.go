@@ -216,7 +216,8 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), ur.status,
-			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at,
+			e.geofence_radius_meters
 		FROM events e
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) FILTER (WHERE status = 'going') AS going_count,
@@ -433,23 +434,36 @@ func (r *EventRepository) SearchEvents(ctx context.Context, query string) ([]dom
 }
 
 func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
+	cols, _ := rows.Columns()
+	hasGeofenceRadius := len(cols) >= 23
 	events := make([]domain.Event, 0)
 	for rows.Next() {
 		var event domain.Event
 		var producerID, genre, userRSVP sql.NullString
 		var price, lat, lng sql.NullFloat64
+		var geofenceRadius sql.NullInt64
 		var lineup pq.StringArray
 		var ticketTiers []byte
 		var ticketSource, ticketUrl sql.NullString
 		var ticketInfoFetchedAt, endDate sql.NullTime
 
-		if err := rows.Scan(
+		dest := []interface{}{
 			&event.ID, &event.Title, &producerID, &event.Date, &endDate, &event.Location, &lat, &lng,
 			&event.CinematicBannerURL, &event.Description, &lineup, &genre, &price,
 			&event.IsFeatured, &event.CreatedAt, &event.GoingCount, &event.NotGoingCount, &userRSVP,
 			&ticketTiers, &ticketSource, &ticketUrl, &ticketInfoFetchedAt,
-		); err != nil {
+		}
+		if hasGeofenceRadius {
+			dest = append(dest, &geofenceRadius)
+		}
+
+		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scanning event: %w", err)
+		}
+
+		if geofenceRadius.Valid {
+			r := int(geofenceRadius.Int64)
+			event.GeofenceRadiusMeters = &r
 		}
 
 		if lat.Valid {
@@ -623,12 +637,22 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		  END
 		  AND (
 		    6371000 * acos(
-		      cos(radians($2)) * cos(radians(e.latitude)) *
-		      cos(radians(e.longitude) - radians($3)) +
-		      sin(radians($2)) * sin(radians(e.latitude))
+		      LEAST(1.0, GREATEST(-1.0,
+		        cos(radians($2)) * cos(radians(e.latitude)) *
+		        cos(radians(e.longitude) - radians($3)) +
+		        sin(radians($2)) * sin(radians(e.latitude))
+		      ))
 		    )
 		  ) <= COALESCE(e.geofence_radius_meters, 300)
-		ORDER BY e.date ASC
+		ORDER BY (
+		    6371000 * acos(
+		      LEAST(1.0, GREATEST(-1.0,
+		        cos(radians($2)) * cos(radians(e.latitude)) *
+		        cos(radians(e.longitude) - radians($3)) +
+		        sin(radians($2)) * sin(radians(e.latitude))
+		      ))
+		    )
+		  ) ASC, e.date ASC
 		LIMIT 1
 	`
 

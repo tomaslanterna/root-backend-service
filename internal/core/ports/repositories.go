@@ -113,7 +113,11 @@ type CommunityRepository interface {
 }
 
 type DanceRepository interface {
+	InitSchema(ctx context.Context) error
 	SaveDanceSession(ctx context.Context, session *domain.DanceSession) error
+	CreatePermanentCrew(ctx context.Context, creatorID string, req CreateCrewRequest) (map[string]interface{}, error)
+	JoinPermanentCrew(ctx context.Context, userID, codeOrID string) (map[string]interface{}, error)
+	AddCrewEvent(ctx context.Context, squadID, eventID, userID string) error
 	GetCrewLeaderboardAllTime(ctx context.Context, squadID string) ([]map[string]interface{}, error)
 	GetCrewLeaderboardByEvent(ctx context.Context, squadID, eventID string) ([]map[string]interface{}, error)
 	GetUserCrews(ctx context.Context, userID string) ([]map[string]interface{}, error)
@@ -122,3 +126,4 @@ type DanceRepository interface {
 	GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error)
 	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)
 }
+
