@@ -68,7 +68,7 @@ func TestBadgesPostgresIntegration(t *testing.T) {
 		t.Fatalf("refusing writes: expected isolated schema %s, got %s", schema, activeSchema)
 	}
 	_, err = db.ExecContext(ctx, `CREATE TABLE users(id UUID PRIMARY KEY,username TEXT UNIQUE);
-	 CREATE TABLE events(id UUID PRIMARY KEY,title TEXT,date TIMESTAMPTZ,location TEXT,producer_id UUID,
+	 CREATE TABLE events(id UUID PRIMARY KEY,title TEXT,date TIMESTAMPTZ,end_date TIMESTAMPTZ,location TEXT,producer_id UUID,
 	 latitude FLOAT8,longitude FLOAT8,geofence_radius_meters INT,cinematic_banner_url TEXT,description TEXT,
 	 lineup TEXT[],genre TEXT,price NUMERIC,is_featured BOOLEAN,created_at TIMESTAMPTZ DEFAULT NOW(),
 	 ticket_tiers JSONB,ticket_source TEXT,ticket_url TEXT,ticket_info_fetched_at TIMESTAMPTZ);
@@ -119,10 +119,10 @@ func TestBadgesPostgresIntegration(t *testing.T) {
 	if pending, err := events.GetPendingSurveys(ctx, u1); err != nil || len(pending) != 0 {
 		t.Fatal("RSVP unlocked a review")
 	}
-	if _, err := events.GetLiveEventStatus(ctx, u1, 0, 0); !errors.Is(err, sql.ErrNoRows) {
+	if _, _, err := events.GetLiveEventStatus(ctx, u1, 0, 0); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("outside geofence: %v", err)
 	}
-	if _, err := events.GetLiveEventStatus(ctx, u2, -34.9, -56.2); !errors.Is(err, sql.ErrNoRows) {
+	if _, _, err := events.GetLiveEventStatus(ctx, u2, -34.9, -56.2); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatal("non-going RSVP got attendance")
 	}
 	var wg sync.WaitGroup
@@ -130,7 +130,7 @@ func TestBadgesPostgresIntegration(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := events.GetLiveEventStatus(ctx, u1, -34.9, -56.2); err != nil {
+			if _, _, err := events.GetLiveEventStatus(ctx, u1, -34.9, -56.2); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -168,7 +168,7 @@ func TestBadgesPostgresIntegration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM event_rsvps WHERE user_id=$1 AND event_id=$2`, u1, e3); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := events.GetLiveEventStatus(ctx, u1, -34.9, -56.2); err != nil {
+	if _, _, err := events.GetLiveEventStatus(ctx, u1, -34.9, -56.2); err != nil {
 		t.Fatal(err)
 	}
 	if pending, err := events.GetPendingSurveys(ctx, u1); err != nil || len(pending) != 1 {
@@ -200,7 +200,7 @@ func TestBadgesPostgresIntegration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `UPDATE events SET date=NOW()-INTERVAL '20 hours'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := events.GetLiveEventStatus(ctx, u1, -34.9, -56.2); !errors.Is(err, sql.ErrNoRows) {
+	if _, _, err := events.GetLiveEventStatus(ctx, u1, -34.9, -56.2); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatal("past event confirmed")
 	}
 	if _, err := badges.Get(ctx, u1, e3); err != nil {

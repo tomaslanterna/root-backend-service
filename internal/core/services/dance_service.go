@@ -44,16 +44,28 @@ func (s *danceService) SyncSteps(ctx context.Context, userID string, req ports.S
 	if req.StepsCount < 0 || math.IsNaN(req.Lat) || math.IsNaN(req.Lng) || math.IsInf(req.Lat, 0) || math.IsInf(req.Lng, 0) || req.Lat < -90 || req.Lat > 90 || req.Lng < -180 || req.Lng > 180 {
 		return nil, errors.New("invalid dance synchronization")
 	}
-	// Reuse the same authoritative time/geofence/RSVP check as the presence banner.
-	// Do not trust arbitrary event IDs, client timestamps or missing venue coordinates.
-	event, err := s.eventRepo.GetLiveEventStatus(ctx, userID, req.Lat, req.Lng)
+	// Validate event exists and get its coordinates
+	event, err := s.eventRepo.GetEventByID(ctx, req.EventID, userID)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("event not found")
 	}
-	if event == nil || event.ID != req.EventID {
-		return nil, errors.New("attendance not confirmed for this event")
+
+	isValidated := false
+
+	// Validate location using Haversine
+	if event.Latitude != nil && event.Longitude != nil {
+		radius := 300 // fallback only if geofence_radius_meters is NULL in DB (matches COALESCE(e.geofence_radius_meters, 300))
+		if event.GeofenceRadiusMeters != nil && *event.GeofenceRadiusMeters > 0 {
+			radius = *event.GeofenceRadiusMeters
+		}
+
+		dist := haversine(req.Lat, req.Lng, *event.Latitude, *event.Longitude)
+		if dist <= float64(radius) {
+			isValidated = true
+		}
+	} else {
+		isValidated = true
 	}
-	isValidated := true
 
 	session := &domain.DanceSession{
 		ID:          uuid.New().String(),
@@ -73,6 +85,18 @@ func (s *danceService) SyncSteps(ctx context.Context, userID string, req ports.S
 	return session, nil
 }
 
+func (s *danceService) CreatePermanentCrew(ctx context.Context, creatorID string, req ports.CreateCrewRequest) (map[string]interface{}, error) {
+	return s.danceRepo.CreatePermanentCrew(ctx, creatorID, req)
+}
+
+func (s *danceService) JoinPermanentCrew(ctx context.Context, userID, codeOrID string) (map[string]interface{}, error) {
+	return s.danceRepo.JoinPermanentCrew(ctx, userID, codeOrID)
+}
+
+func (s *danceService) AddCrewEvent(ctx context.Context, squadID, eventID, userID string) error {
+	return s.danceRepo.AddCrewEvent(ctx, squadID, eventID, userID)
+}
+
 func (s *danceService) GetCrewLeaderboards(ctx context.Context, squadID string, eventID *string) (map[string]interface{}, error) {
 	allTime, err := s.danceRepo.GetCrewLeaderboardAllTime(ctx, squadID)
 	if err != nil {
@@ -83,10 +107,23 @@ func (s *danceService) GetCrewLeaderboards(ctx context.Context, squadID string, 
 		"allTime": allTime,
 	}
 
+	targetEventID := ""
 	if eventID != nil && *eventID != "" {
-		byEvent, err := s.danceRepo.GetCrewLeaderboardByEvent(ctx, squadID, *eventID)
+		targetEventID = *eventID
+	} else {
+		events, err := s.danceRepo.GetCrewEvents(ctx, squadID)
+		if err == nil && len(events) > 0 {
+			if eid, ok := events[0]["id"].(string); ok {
+				targetEventID = eid
+			}
+		}
+	}
+
+	if targetEventID != "" {
+		byEvent, err := s.danceRepo.GetCrewLeaderboardByEvent(ctx, squadID, targetEventID)
 		if err == nil {
 			response["byEvent"] = byEvent
+			response["eventId"] = targetEventID
 		}
 	}
 
@@ -106,13 +143,7 @@ func (s *danceService) GetUserDanceSessions(ctx context.Context, userID string) 
 }
 
 func (s *danceService) GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error) {
-	crew, err := s.danceRepo.GetCrewByID(ctx, squadID)
-	if err != nil {
-		return nil, err
-	}
-	allTime, _ := s.danceRepo.GetCrewLeaderboardAllTime(ctx, squadID)
-	crew["leaderboardAllTime"] = allTime
-	return crew, nil
+	return s.danceRepo.GetCrewByID(ctx, squadID)
 }
 
 func (s *danceService) GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -370,14 +371,16 @@ func (h *PostHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := r.ParseMultipartForm(10 << 20) // 10MB limit
+	err := r.ParseMultipartForm(32 << 20) // 32MB limit
 	if err != nil {
+		log.Printf("UploadImage ParseMultipartForm error: %v", err)
 		respondWithError(w, http.StatusBadRequest, "File too large or invalid")
 		return
 	}
 
 	file, header, err := r.FormFile("image")
 	if err != nil {
+		log.Printf("UploadImage FormFile error: %v", err)
 		respondWithError(w, http.StatusBadRequest, "No image file provided")
 		return
 	}
@@ -391,6 +394,7 @@ func (h *PostHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
 	key := fmt.Sprintf("posts/%s/%d_%s", userID, time.Now().Unix(), header.Filename)
 	_, s3Err := h.s3Service.UploadToS3(r.Context(), file, key, header.Header.Get("Content-Type"))
 	if s3Err != nil {
+		log.Printf("UploadImage S3 upload error: %v", s3Err)
 		respondWithError(w, http.StatusInternalServerError, "Failed to upload image to S3")
 		return
 	}

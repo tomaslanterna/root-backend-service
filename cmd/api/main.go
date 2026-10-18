@@ -181,6 +181,9 @@ func main() {
 	if err := initSchema(communityRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize the required community schema: %v", err)
 	}
+	if err := danceRepo.InitSchema(context.Background()); err != nil {
+		log.Fatalf("Could not initialize the required dance/crew schema: %v", err)
+	}
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo, recoveryRepo)
@@ -189,7 +192,7 @@ func main() {
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()
 	contentModerator := aiservice.NewGeminiContentModerator()
 	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider, contentModerator)
-	searchService := search.NewSearchService(userRepo, eventRepo)
+	searchService := search.NewSearchService(userRepo, eventRepo, communityRepo)
 	postService := coreServices.NewPostService(postRepo, communityRepo)
 
 	chatService := coreServices.NewChatService(chatRepo, messageRepo)

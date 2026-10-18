@@ -71,6 +71,11 @@ func (c *eventTestConn) QueryContext(_ context.Context, query string, _ []driver
 		return newEventTestRows([]string{"count"}, []driver.Value{int64(1)}), nil
 	case strings.Contains(normalized, "COUNT(*) FILTER (WHERE status = 'going')") && strings.Contains(normalized, "WHERE event_id::text = $1"):
 		return newEventTestRows([]string{"going", "not_going"}, []driver.Value{int64(8), int64(3)}), nil
+	case strings.HasPrefix(normalized, "SELECT e.id, e.title") && strings.Contains(normalized, "e.geofence_radius_meters"):
+		return newEventTestRows(
+			[]string{"id", "title", "producer_id", "date", "end_date", "location", "latitude", "longitude", "banner", "description", "lineup", "genre", "price", "featured", "created_at", "going", "not_going", "user_rsvp", "ticket_tiers", "ticket_source", "ticket_url", "ticket_info_fetched_at", "geofence_radius_meters"},
+			[]driver.Value{"event-1", "Fiesta", nil, now, nil, "Montevideo", float64(-34.8646274), float64(-56.0128957), "https://image", "Descripción", "{DJ}", "Electrónica", float64(1200), true, now, int64(8), int64(3), "going", []byte("[]"), nil, nil, nil, int64(1000)},
+		), nil
 	case strings.HasPrefix(normalized, "SELECT e.id, e.title"):
 		return newEventTestRows(
 			[]string{"id", "title", "producer_id", "date", "end_date", "location", "latitude", "longitude", "banner", "description", "lineup", "genre", "price", "featured", "created_at", "going", "not_going", "user_rsvp", "ticket_tiers", "ticket_source", "ticket_url", "ticket_info_fetched_at"},
@@ -90,6 +95,8 @@ func (c *eventTestConn) QueryContext(_ context.Context, query string, _ []driver
 		return newEventTestRows([]string{"id", "timestamp"}, []driver.Value{"comment-new", now}), nil
 	case strings.HasPrefix(normalized, "SELECT name, username, avatar_url FROM users"):
 		return newEventTestRows([]string{"name", "username", "avatar"}, []driver.Value{"Usuario", "usuario", nil}), nil
+	case strings.HasPrefix(normalized, "SELECT NULLIF(to_jsonb(e)->>'department','')"):
+		return newEventTestRows([]string{"department", "country"}, []driver.Value{"Montevideo", "UY"}), nil
 	default:
 		return nil, fmt.Errorf("unexpected query: %s", normalized)
 	}
@@ -172,6 +179,17 @@ func TestGetEventsReturnsRealTotalAndStableFutureOrder(t *testing.T) {
 	queries := strings.Join(state.queries, "\n")
 	if !strings.Contains(queries, "ORDER BY e.date ASC, e.id ASC") {
 		t.Fatalf("stable date order missing from query: %s", queries)
+	}
+}
+
+func TestGetEventByIDPopulatesGeofenceRadiusMeters(t *testing.T) {
+	repository, _ := newEventRepositoryForTest(t)
+	ev, err := repository.GetEventByID(context.Background(), "event-1", "user-1")
+	if err != nil {
+		t.Fatalf("getting event by id: %v", err)
+	}
+	if ev.GeofenceRadiusMeters == nil || *ev.GeofenceRadiusMeters != 1000 {
+		t.Fatalf("expected GeofenceRadiusMeters=1000, got %+v", ev.GeofenceRadiusMeters)
 	}
 }
 

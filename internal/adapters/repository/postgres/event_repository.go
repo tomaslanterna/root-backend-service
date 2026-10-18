@@ -38,6 +38,7 @@ func (r *EventRepository) InitSchema(ctx context.Context) error {
 	defer tx.Rollback()
 
 	statements := []string{
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS end_date TIMESTAMPTZ`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS genre VARCHAR(100)`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS department TEXT`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS country TEXT`,
@@ -218,7 +219,8 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), ur.status,
-			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at,
+			e.geofence_radius_meters
 		FROM events e
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) FILTER (WHERE status = 'going') AS going_count,
@@ -439,23 +441,36 @@ func (r *EventRepository) SearchEvents(ctx context.Context, query string) ([]dom
 }
 
 func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
+	cols, _ := rows.Columns()
+	hasGeofenceRadius := len(cols) >= 23
 	events := make([]domain.Event, 0)
 	for rows.Next() {
 		var event domain.Event
 		var producerID, genre, userRSVP sql.NullString
 		var price, lat, lng sql.NullFloat64
+		var geofenceRadius sql.NullInt64
 		var lineup pq.StringArray
 		var ticketTiers []byte
 		var ticketSource, ticketUrl sql.NullString
 		var ticketInfoFetchedAt, endDate sql.NullTime
 
-		if err := rows.Scan(
+		dest := []interface{}{
 			&event.ID, &event.Title, &producerID, &event.Date, &endDate, &event.Location, &lat, &lng,
 			&event.CinematicBannerURL, &event.Description, &lineup, &genre, &price,
 			&event.IsFeatured, &event.CreatedAt, &event.GoingCount, &event.NotGoingCount, &userRSVP,
 			&ticketTiers, &ticketSource, &ticketUrl, &ticketInfoFetchedAt,
-		); err != nil {
+		}
+		if hasGeofenceRadius {
+			dest = append(dest, &geofenceRadius)
+		}
+
+		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scanning event: %w", err)
+		}
+
+		if geofenceRadius.Valid {
+			r := int(geofenceRadius.Int64)
+			event.GeofenceRadiusMeters = &r
 		}
 
 		if lat.Valid {
@@ -516,17 +531,15 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 			0 AS going_count, 0 AS not_going_count, ur.status,
 			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
 		FROM events e
-		JOIN event_rsvps ur ON ur.event_id = e.id
-		WHERE ur.user_id::text = $1 AND ur.status = 'going'
-		  AND NOW() >= CASE 
-		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date 
-		      ELSE e.date + INTERVAL '4 hours' 
-		  END
+		JOIN event_attendance attendance ON attendance.event_id = e.id AND attendance.user_id::text = $1
+		LEFT JOIN event_rsvps ur ON ur.event_id = e.id AND ur.user_id = attendance.user_id
+		WHERE attendance.user_id::text = $1
+		  AND e.date < CURRENT_TIMESTAMP
 		  AND NOT EXISTS (
 			  SELECT 1 FROM event_surveys es 
 			  WHERE es.event_id = e.id AND es.user_id::text = $2
 		  )
-		ORDER BY e.date DESC
+		ORDER BY attendance.confirmed_at DESC, e.id DESC LIMIT 50
 	`, userID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("querying pending surveys: %w", err)
@@ -609,6 +622,12 @@ func (r *EventRepository) UpdateEventTicketInfo(ctx context.Context, id string, 
 }
 
 func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, int, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("begin attendance confirmation: %w", err)
+	}
+	defer tx.Rollback()
+
 	query := `
 		SELECT e.id, e.title, e.producer_id, e.date, e.end_date, e.location, e.latitude, e.longitude,
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
@@ -628,13 +647,23 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		      ELSE e.date + INTERVAL '12 hours' 
 		  END
 		  AND (
-		    6371000 * acos(LEAST(1.0,GREATEST(-1.0,
-		      cos(radians($2)) * cos(radians(e.latitude)) *
-		      cos(radians(e.longitude) - radians($3)) +
-		      sin(radians($2)) * sin(radians(e.latitude))
-		    )))
+		    6371000 * acos(
+		      LEAST(1.0, GREATEST(-1.0,
+		        cos(radians($2)) * cos(radians(e.latitude)) *
+		        cos(radians(e.longitude) - radians($3)) +
+		        sin(radians($2)) * sin(radians(e.latitude))
+		      ))
+		    )
 		  ) <= COALESCE(e.geofence_radius_meters, 300)
-		ORDER BY e.date ASC
+		ORDER BY (
+		    6371000 * acos(
+		      LEAST(1.0, GREATEST(-1.0,
+		        cos(radians($2)) * cos(radians(e.latitude)) *
+		        cos(radians(e.longitude) - radians($3)) +
+		        sin(radians($2)) * sin(radians(e.latitude))
+		      ))
+		    )
+		  ) ASC, e.date ASC
 		LIMIT 1
 	`
 
@@ -655,6 +684,14 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 	}
 
 	event := &events[0]
+
+	// Only this server-validated geofence/time result grants a permanent collectible.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO event_attendance(user_id,event_id,source) VALUES($1,$2,'geofence') ON CONFLICT(user_id,event_id) DO NOTHING`, userID, event.ID); err != nil {
+		return nil, 0, fmt.Errorf("confirm event attendance: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, 0, fmt.Errorf("commit event attendance: %w", err)
+	}
 
 	// Fetch user steps for this event
 	var userSteps int
