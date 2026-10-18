@@ -76,8 +76,8 @@ func serveBadgePreview(t *testing.T, db *sql.DB, userID string) {
 		router.Get(path, func(w http.ResponseWriter, r *http.Request) { write(w, map[string]any{"data": []any{}}) })
 	}
 	badgeHandler := handlers.NewBadgeHandler(services.NewBadgeService(NewBadgeRepository(db)))
-	eventService := event.NewEventService(NewEventRepository(db), NewArtistRepository(db), nil)
-	eventHandler := handlers.NewEventHandler(eventService)
+	eventService := event.NewEventService(NewEventRepository(db), NewArtistRepository(db), nil, nil)
+	eventHandler := handlers.NewEventHandler(eventService, nil)
 	router.With(handlers.OptionalAuthMiddleware).Get("/v1/events", eventHandler.GetEvents)
 	surveyHandler := handlers.NewSurveyHandler(survey.NewSurveyService(NewEventSurveyRepository(db)), eventService)
 	router.With(handlers.OptionalAuthMiddleware).Get("/v1/users/{username}/badges", badgeHandler.List)

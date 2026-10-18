@@ -38,6 +38,7 @@ func (r *EventRepository) InitSchema(ctx context.Context) error {
 	defer tx.Rollback()
 
 	statements := []string{
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS end_date TIMESTAMPTZ`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS genre VARCHAR(100)`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS department TEXT`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS country TEXT`,
@@ -530,17 +531,15 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 			0 AS going_count, 0 AS not_going_count, ur.status,
 			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
 		FROM events e
-		JOIN event_rsvps ur ON ur.event_id = e.id
-		WHERE ur.user_id::text = $1 AND ur.status = 'going'
-		  AND NOW() >= CASE 
-		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date 
-		      ELSE e.date + INTERVAL '4 hours' 
-		  END
+		JOIN event_attendance attendance ON attendance.event_id = e.id AND attendance.user_id::text = $1
+		LEFT JOIN event_rsvps ur ON ur.event_id = e.id AND ur.user_id = attendance.user_id
+		WHERE attendance.user_id::text = $1
+		  AND e.date < CURRENT_TIMESTAMP
 		  AND NOT EXISTS (
 			  SELECT 1 FROM event_surveys es 
 			  WHERE es.event_id = e.id AND es.user_id::text = $2
 		  )
-		ORDER BY e.date DESC
+		ORDER BY attendance.confirmed_at DESC, e.id DESC LIMIT 50
 	`, userID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("querying pending surveys: %w", err)
@@ -623,6 +622,12 @@ func (r *EventRepository) UpdateEventTicketInfo(ctx context.Context, id string, 
 }
 
 func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, int, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("begin attendance confirmation: %w", err)
+	}
+	defer tx.Rollback()
+
 	query := `
 		SELECT e.id, e.title, e.producer_id, e.date, e.end_date, e.location, e.latitude, e.longitude,
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
@@ -679,6 +684,14 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 	}
 
 	event := &events[0]
+
+	// Only this server-validated geofence/time result grants a permanent collectible.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO event_attendance(user_id,event_id,source) VALUES($1,$2,'geofence') ON CONFLICT(user_id,event_id) DO NOTHING`, userID, event.ID); err != nil {
+		return nil, 0, fmt.Errorf("confirm event attendance: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, 0, fmt.Errorf("commit event attendance: %w", err)
+	}
 
 	// Fetch user steps for this event
 	var userSteps int

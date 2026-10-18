@@ -106,7 +106,7 @@ func TestLivePresenceRejectsInvalidCoordinates(t *testing.T) {
 		// A nil service makes an accidental call past validation fail the test.
 		req := requestWithRouteAndUser(httptest.NewRequest("GET", "/"+query, nil), "", "owner")
 		w := httptest.NewRecorder()
-		NewEventHandler(nil).GetLiveEventStatus(w, req)
+		NewEventHandler(nil, nil).GetLiveEventStatus(w, req)
 		if w.Code != 400 {
 			t.Fatalf("%s: got %d", query, w.Code)
 		}

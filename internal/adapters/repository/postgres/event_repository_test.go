@@ -95,6 +95,8 @@ func (c *eventTestConn) QueryContext(_ context.Context, query string, _ []driver
 		return newEventTestRows([]string{"id", "timestamp"}, []driver.Value{"comment-new", now}), nil
 	case strings.HasPrefix(normalized, "SELECT name, username, avatar_url FROM users"):
 		return newEventTestRows([]string{"name", "username", "avatar"}, []driver.Value{"Usuario", "usuario", nil}), nil
+	case strings.HasPrefix(normalized, "SELECT NULLIF(to_jsonb(e)->>'department','')"):
+		return newEventTestRows([]string{"department", "country"}, []driver.Value{"Montevideo", "UY"}), nil
 	default:
 		return nil, fmt.Errorf("unexpected query: %s", normalized)
 	}
