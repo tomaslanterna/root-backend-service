@@ -41,10 +41,14 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 }
 
 func (s *danceService) SyncSteps(ctx context.Context, userID string, req ports.SyncDanceRequest) (*domain.DanceSession, error) {
-	// Validate event exists and get its coordinates
-	event, err := s.eventRepo.GetEventByID(ctx, req.EventID, userID)
+	if req.StepsCount < 0 || math.IsNaN(req.Lat) || math.IsNaN(req.Lng) || math.IsInf(req.Lat, 0) || math.IsInf(req.Lng, 0) || req.Lat < -90 || req.Lat > 90 || req.Lng < -180 || req.Lng > 180 {
+		return nil, errors.New("invalid dance synchronization")
+	}
+	// Reuse the same authoritative time/geofence/RSVP check as the presence banner.
+	// Do not trust arbitrary event IDs, client timestamps or missing venue coordinates.
+	event, err := s.eventRepo.GetLiveEventStatus(ctx, userID, req.Lat, req.Lng)
 	if err != nil {
-		return nil, errors.New("event not found")
+		return nil, err
 	}
 
 	isValidated := false
@@ -63,6 +67,7 @@ func (s *danceService) SyncSteps(ctx context.Context, userID string, req ports.S
 	} else {
 		isValidated = true
 	}
+	isValidated := true
 
 	session := &domain.DanceSession{
 		ID:          uuid.New().String(),

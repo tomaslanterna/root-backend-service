@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	emailadapter "root-backend-service/internal/adapters/email"
 	"root-backend-service/internal/adapters/handlers"
 	pushadapter "root-backend-service/internal/adapters/push"
 	"root-backend-service/internal/adapters/repository/postgres"
@@ -31,6 +33,10 @@ import (
 )
 
 func main() {
+	initializeSchema := flag.Bool("initialize-schema", true, "Initialize schema on startup (disable after a separately verified migration)")
+	backgroundWorkers := flag.Bool("background-workers", true, "Process push/email queues (disable for a local API sharing the live database)")
+	listenAddress := flag.String("listen-address", "", "Override listening address, e.g. 127.0.0.1:8080")
+	flag.Parse()
 	// Cargar variables de entorno desde .env y FORZAR que pisen a las del sistema
 	if err := godotenv.Overload(); err != nil {
 		log.Println("No .env file found, using system environment variables")
@@ -57,16 +63,70 @@ func main() {
 	postRepo := postgres.NewPostRepository(db)
 	artistRepo := postgres.NewArtistRepository(db)
 	surveyRepo := postgres.NewEventSurveyRepository(db)
+	badgeRepo := postgres.NewBadgeRepository(db)
 	communityRepo := postgres.NewCommunityRepository(db)
 	matchRepo := postgres.NewMatchRepository(db)
 	danceRepo := postgres.NewDanceRepository(db)
 
-	if err := messageRepo.InitSchema(context.Background()); err != nil {
+	initSchema := func(initialize func(context.Context) error) error {
+		if !*initializeSchema {
+			return nil
+		}
+		return initialize(context.Background())
+	}
+	if err := initSchema(messageRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize the required message schema: %v", err)
 	}
-	if err := pushRepo.InitSchema(context.Background()); err != nil {
+	if err := initSchema(pushRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize push schema: %v", err)
 	}
+	recoveryRepo := postgres.NewPasswordRecoveryRepository(db)
+	if err := initSchema(recoveryRepo.InitSchema); err != nil {
+		log.Fatalf("Could not initialize password recovery schema: %v", err)
+	}
+	var recoverySender ports.PasswordResetSender
+	emailSender, err := emailadapter.NewTransactional(os.Getenv("PASSWORD_RESET_EMAIL_PROVIDER"), os.Getenv("PASSWORD_RESET_EMAIL_API_KEY"), os.Getenv("PASSWORD_RESET_EMAIL_FROM"))
+	if err != nil {
+		log.Fatalf("Could not configure recovery email: %v", err)
+	}
+	if emailSender != nil {
+		recoverySender = emailSender
+	}
+	recoveryService, err := auth.NewPasswordRecovery(recoveryRepo, recoverySender, os.Getenv("PASSWORD_RESET_TOKEN_KEY"), os.Getenv("FRONTEND_URL"))
+	if err != nil {
+		log.Fatalf("Could not configure password recovery: %v", err)
+	}
+	if !recoveryService.Enabled() {
+		log.Println("Password recovery disabled; select and configure an email provider")
+	}
+	recoveryDone := make(chan struct{})
+	go func() {
+		defer close(recoveryDone)
+		if !*backgroundWorkers || !recoveryService.Enabled() {
+			return
+		}
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pushCtx.Done():
+				return
+			case <-ticker.C:
+				for i := 0; i < 10; i++ {
+					processed, err := recoveryService.ProcessNext(pushCtx)
+					if err != nil {
+						if pushCtx.Err() == nil {
+							log.Println("Recovery email worker failed; check provider configuration and queue status")
+						}
+						break
+					}
+					if !processed {
+						break
+					}
+				}
+			}
+		}
+	}()
 	var pushSender ports.PushSender
 	if os.Getenv("PUSH_ENABLED") == "true" {
 		sender, err := pushadapter.NewFCM(pushCtx, os.Getenv("FIREBASE_PROJECT_ID"))
@@ -81,7 +141,7 @@ func main() {
 	pushDone := make(chan struct{})
 	go func() {
 		defer close(pushDone)
-		if !pushService.Enabled() {
+		if !*backgroundWorkers || !pushService.Enabled() {
 			return
 		}
 		ticker := time.NewTicker(2 * time.Second)
@@ -103,19 +163,22 @@ func main() {
 			}
 		}
 	}()
-	if err := matchRepo.InitSchema(context.Background()); err != nil {
+	if err := initSchema(matchRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize matcher chat indexes: %v", err)
 	}
-	if err := eventRepo.InitSchema(context.Background()); err != nil {
+	if err := initSchema(eventRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize the required event schema: %v", err)
 	}
-	if err := artistRepo.InitSchema(context.Background()); err != nil {
+	if err := initSchema(artistRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize the required artist schema: %v", err)
 	}
-	if err := surveyRepo.InitSchema(context.Background()); err != nil {
+	if err := initSchema(badgeRepo.InitSchema); err != nil {
+		log.Fatalf("Could not initialize attendance schema: %v", err)
+	}
+	if err := initSchema(surveyRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize the required survey schema: %v", err)
 	}
-	if err := communityRepo.InitSchema(context.Background()); err != nil {
+	if err := initSchema(communityRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize the required community schema: %v", err)
 	}
 	if err := danceRepo.InitSchema(context.Background()); err != nil {
@@ -123,7 +186,7 @@ func main() {
 	}
 
 	// 3. Inicialización de Servicios
-	authService := auth.NewAuthService(userRepo)
+	authService := auth.NewAuthService(userRepo, recoveryRepo)
 	userService := user.NewUserService(userRepo)
 
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()
@@ -174,12 +237,15 @@ func main() {
 	defer chatRealtime.Close()
 	transferHandler := handlers.NewTransferHandler(transferService)
 	surveyHandler := handlers.NewSurveyHandler(surveyService, eventService)
+	badgeHandler := handlers.NewBadgeHandler(coreServices.NewBadgeService(badgeRepo))
 	aiHandler := handlers.NewAIHandler()
 	matchHandler := handlers.NewMatchHandler(matchService)
 	danceHandler := handlers.NewDanceHandler(danceService)
 
 	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
+		PasswordRecovery: handlers.NewPasswordRecoveryHandler(recoveryService),
+		ValidateSession:  authService.ValidateSession,
 		AuthHandler:      authHandler,
 		UserHandler:      userHandler,
 		PostHandler:      postHandler,
@@ -193,6 +259,9 @@ func main() {
 		PushHandler:      handlers.NewPushHandler(pushService),
 		TransferHandler:  transferHandler,
 		SurveyHandler:    surveyHandler,
+		BadgeHandler:     badgeHandler,
+		BadgeMedia:       handlers.NewBadgeMediaHandler(badgeRepo, s3Service),
+		ReviewReminder:   handlers.NewReviewReminderHandler(coreServices.NewReviewReminderService(badgeRepo)),
 		AIHandler:        aiHandler,
 		MatchHandler:     matchHandler,
 		DanceHandler:     danceHandler,
@@ -211,13 +280,19 @@ func main() {
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+	if *listenAddress != "" {
+		server.Addr = *listenAddress
+	}
+	if !*backgroundWorkers {
+		log.Println("Local API: background queues left to the existing live workers")
+	}
 
 	// Canal para escuchar señales de apagado gradual (Graceful Shutdown)
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("🚀 Servidor Root Backend (Mocked) iniciado en el puerto %s...", port)
+		log.Printf("🚀 Servidor Root Backend iniciado en %s...", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("❌ Error crítico al iniciar el servidor: %v", err)
 		}
@@ -226,6 +301,7 @@ func main() {
 	<-stop
 	stopPush()
 	<-pushDone
+	<-recoveryDone
 	chatRealtime.Close()
 	log.Println("🛑 Apagando el servidor gradualmente...")
 

@@ -17,6 +17,7 @@ type S3Service interface {
 	UploadToS3(ctx context.Context, file io.Reader, key string, contentType string) (string, error)
 	GenerateViewUrl(ctx context.Context, key string, expiresIn time.Duration) (string, error)
 	GetObject(ctx context.Context, key string) ([]byte, error)
+	GetObjectLimited(ctx context.Context, key string, maxBytes int64) ([]byte, error)
 }
 
 type s3ServiceImpl struct {
@@ -81,6 +82,11 @@ func (s *s3ServiceImpl) GenerateViewUrl(ctx context.Context, key string, expires
 }
 
 func (s *s3ServiceImpl) GetObject(ctx context.Context, key string) ([]byte, error) {
+	return s.GetObjectLimited(ctx, key, 0)
+}
+
+// Bound public artwork reads without changing existing consumers' semantics.
+func (s *s3ServiceImpl) GetObjectLimited(ctx context.Context, key string, maxBytes int64) ([]byte, error) {
 	if key == "" {
 		return nil, fmt.Errorf("key cannot be empty")
 	}
@@ -94,7 +100,11 @@ func (s *s3ServiceImpl) GetObject(ctx context.Context, key string) ([]byte, erro
 	}
 	defer result.Body.Close()
 
-	body, err := io.ReadAll(result.Body)
+	var reader io.Reader = result.Body
+	if maxBytes > 0 {
+		reader = io.LimitReader(result.Body, maxBytes+1)
+	}
+	body, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read object body: %w", err)
 	}
