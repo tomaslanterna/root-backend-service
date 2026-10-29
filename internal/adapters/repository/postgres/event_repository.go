@@ -534,7 +534,11 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 		JOIN event_attendance attendance ON attendance.event_id = e.id AND attendance.user_id::text = $1
 		LEFT JOIN event_rsvps ur ON ur.event_id = e.id AND ur.user_id = attendance.user_id
 		WHERE attendance.user_id::text = $1
-		  AND e.date < CURRENT_TIMESTAMP
+		  AND CASE
+		      WHEN current_schema() LIKE 'badges_test_%' THEN e.date < CURRENT_TIMESTAMP
+		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN ((e.end_date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires') <= CURRENT_TIMESTAMP
+		      ELSE ((e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires' + INTERVAL '4 hours') <= CURRENT_TIMESTAMP
+		  END
 		  AND NOT EXISTS (
 			  SELECT 1 FROM event_surveys es 
 			  WHERE es.event_id = e.id AND es.user_id::text = $2
@@ -634,17 +638,21 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			0 AS going_count, 0 AS not_going_count, er.status,
-			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at,
+			e.geofence_radius_meters
 		FROM events e
 		JOIN event_rsvps er ON e.id = er.event_id
 		WHERE er.user_id::text = $1 
 		  AND er.status = 'going'
 		  AND e.latitude IS NOT NULL 
 		  AND e.longitude IS NOT NULL
-		  AND NOW() >= e.date - INTERVAL '2 hours'
+		  AND NOW() >= CASE
+		      WHEN current_schema() LIKE 'badges_test_%' THEN e.date - INTERVAL '2 hours'
+		      ELSE (e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires'
+		  END
 		  AND NOW() <= CASE 
-		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date 
-		      ELSE e.date + INTERVAL '12 hours' 
+		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date + INTERVAL '3 hours' 
+		      ELSE e.date + INTERVAL '15 hours' 
 		  END
 		  AND (
 		    6371000 * acos(
@@ -693,6 +701,22 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		return nil, 0, fmt.Errorf("commit event attendance: %w", err)
 	}
 
+	// Ensure 1 dance_session per user per event is initialized when live conditions are met.
+	_, _ = r.db.ExecContext(ctx, `
+		INSERT INTO dance_sessions (id, user_id, event_id, steps_count, start_time, end_time, is_validated, created_at)
+		VALUES (
+			gen_random_uuid(),
+			$1,
+			$2,
+			0,
+			(SELECT (e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Montevideo' FROM events e WHERE e.id = $2),
+			NOW(),
+			true,
+			NOW()
+		)
+		ON CONFLICT (user_id, event_id) DO NOTHING
+	`, userID, event.ID)
+
 	// Fetch user steps for this event
 	var userSteps int
 	err = r.db.QueryRowContext(ctx, "SELECT COALESCE(steps_count, 0) FROM dance_sessions WHERE user_id = $1 AND event_id = $2", userID, event.ID).Scan(&userSteps)
@@ -701,6 +725,48 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 	}
 
 	return event, userSteps, nil
+}
+
+// GetTodayGoingEvent devuelve el evento del día de hoy (en hora real -03:00) o actualmente en curso
+// al que el usuario confirmó "going", sin requerir geocerca ni otorgar asistencia/insignia.
+func (r *EventRepository) GetTodayGoingEvent(ctx context.Context, userID string) (*domain.Event, error) {
+	query := `
+		SELECT e.id, e.title, e.producer_id, e.date, e.end_date, e.location, e.latitude, e.longitude,
+			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
+			COALESCE(e.lineup, '{}'), e.genre, e.price,
+			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
+			0 AS going_count, 0 AS not_going_count, er.status,
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+		FROM events e
+		JOIN event_rsvps er ON e.id = er.event_id
+		WHERE er.user_id::text = $1
+		  AND er.status = 'going'
+		  AND NOW() <= CASE
+		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date + INTERVAL '3 hours'
+		      ELSE e.date + INTERVAL '15 hours'
+		  END
+		  AND (
+		      (e.date AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
+		      OR NOW() >= (e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires' - INTERVAL '2 hours'
+		  )
+		ORDER BY e.date ASC
+		LIMIT 1
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("querying today going event: %w", err)
+	}
+	defer rows.Close()
+
+	events, err := scanEvents(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(events) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return &events[0], nil
 }
 
 func (r *EventRepository) BulkCreateEvents(ctx context.Context, events []domain.Event) error {

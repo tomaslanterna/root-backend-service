@@ -1,23 +1,53 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"root-backend-service/internal/core/ports"
+	"root-backend-service/internal/services/s3"
 )
 
 type DanceHandler struct {
 	danceService ports.DanceService
+	s3Service    s3.S3Service
 }
 
-func NewDanceHandler(svc ports.DanceService) *DanceHandler {
-	return &DanceHandler{danceService: svc}
+func NewDanceHandler(svc ports.DanceService, s3Services ...s3.S3Service) *DanceHandler {
+	var s3Svc s3.S3Service
+	if len(s3Services) > 0 {
+		s3Svc = s3Services[0]
+	}
+	return &DanceHandler{danceService: svc, s3Service: s3Svc}
+}
+
+func (h *DanceHandler) enrichCrewEventImages(ctx context.Context, events []map[string]interface{}) {
+	if h.s3Service == nil {
+		return
+	}
+	for i := range events {
+		var raw string
+		switch v := events[i]["cinematicBannerUrl"].(type) {
+		case string:
+			raw = strings.TrimSpace(v)
+		case *string:
+			if v != nil {
+				raw = strings.TrimSpace(*v)
+			}
+		}
+		if raw != "" && !strings.HasPrefix(raw, "http") {
+			if url, err := h.s3Service.GenerateViewUrl(ctx, raw, 7*24*time.Hour); err == nil {
+				events[i]["cinematicBannerUrl"] = url
+			}
+		}
+	}
 }
 
 func (h *DanceHandler) SyncSteps(w http.ResponseWriter, r *http.Request) {
@@ -172,6 +202,7 @@ func (h *DanceHandler) AddCrewEvent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		events = []map[string]interface{}{}
 	}
+	h.enrichCrewEventImages(r.Context(), events)
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{"data": events})
 }
 
@@ -248,6 +279,9 @@ func (h *DanceHandler) GetCrewByID(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusNotFound, "Crew not found")
 		return
 	}
+	if evs, ok := crew["events"].([]map[string]interface{}); ok {
+		h.enrichCrewEventImages(r.Context(), evs)
+	}
 	respondWithJSON(w, http.StatusOK, crew)
 }
 
@@ -261,5 +295,6 @@ func (h *DanceHandler) GetCrewEvents(w http.ResponseWriter, r *http.Request) {
 	if events == nil {
 		events = []map[string]interface{}{}
 	}
+	h.enrichCrewEventImages(r.Context(), events)
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{"data": events})
 }
