@@ -240,7 +240,7 @@ func main() {
 	badgeHandler := handlers.NewBadgeHandler(coreServices.NewBadgeService(badgeRepo))
 	aiHandler := handlers.NewAIHandler()
 	matchHandler := handlers.NewMatchHandler(matchService)
-	danceHandler := handlers.NewDanceHandler(danceService)
+	danceHandler := handlers.NewDanceHandler(danceService, s3Service)
 
 	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{

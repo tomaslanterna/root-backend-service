@@ -105,6 +105,15 @@ func (s *EventService) GetLiveEventStatus(ctx context.Context, userID string, la
 	return s.eventRepo.GetLiveEventStatus(ctx, userID, lat, lng)
 }
 
+func (s *EventService) GetTodayGoingEvent(ctx context.Context, userID string) (*domain.Event, error) {
+	if repo, ok := s.eventRepo.(interface {
+		GetTodayGoingEvent(ctx context.Context, userID string) (*domain.Event, error)
+	}); ok {
+		return repo.GetTodayGoingEvent(ctx, userID)
+	}
+	return nil, nil
+}
+
 func (s *EventService) BulkCreateFromCSV(ctx context.Context, file io.Reader) (int, error) {
 	reader := csv.NewReader(file)
 	reader.Comma = ','

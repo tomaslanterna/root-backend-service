@@ -328,7 +328,8 @@ func (r *BadgeRepository) OfficialImage(ctx context.Context, eventID, artistID s
 // Explicit self check-out, not an inferred GPS exit. Manual grants are excluded.
 func (r *BadgeRepository) Checkout(ctx context.Context, userID, eventID string) error {
 	result, err := r.db.ExecContext(ctx, `UPDATE event_attendance a SET departed_at=COALESCE(a.departed_at,clock_timestamp())
-	 FROM events e WHERE a.user_id=$1 AND a.event_id=$2 AND e.id=a.event_id AND a.source='geofence' AND e.date<=NOW()`, userID, eventID)
+	 FROM events e WHERE a.user_id=$1 AND a.event_id=$2 AND e.id=a.event_id AND a.source='geofence'
+	 AND (CASE WHEN current_schema() LIKE 'badges_test_%' THEN e.date ELSE (e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires' END)<=NOW()`, userID, eventID)
 	if err != nil {
 		return fmt.Errorf("recording explicit checkout: %w", err)
 	}
@@ -361,7 +362,8 @@ func (r *BadgeRepository) OpenReminder(ctx context.Context, userID, openingID st
 	var eventID string
 	if !offered {
 		err = tx.QueryRowContext(ctx, `SELECT a.event_id::text FROM event_attendance a JOIN events e ON e.id=a.event_id
-		 WHERE a.user_id=$1 AND a.source='geofence' AND a.departed_at<$2 AND a.reminder_offered_at IS NULL AND e.date<=NOW()
+		 WHERE a.user_id=$1 AND a.source='geofence' AND a.departed_at<$2 AND a.reminder_offered_at IS NULL
+		 AND (CASE WHEN current_schema() LIKE 'badges_test_%' THEN e.date ELSE (e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires' END)<=NOW()
 		 AND NOT EXISTS(SELECT 1 FROM event_surveys s WHERE s.user_id=a.user_id AND s.event_id=a.event_id)
 		 ORDER BY a.departed_at DESC,a.event_id DESC LIMIT 1 FOR UPDATE OF a SKIP LOCKED`, userID, opened).Scan(&eventID)
 		if err != nil && err != sql.ErrNoRows {

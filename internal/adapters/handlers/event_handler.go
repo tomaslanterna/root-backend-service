@@ -371,25 +371,73 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	hasLocation := r.URL.Query().Get("hasLocation") != "false"
 	latStr := r.URL.Query().Get("lat")
 	lngStr := r.URL.Query().Get("lng")
 
-	if latStr == "" || lngStr == "" {
-		respondWithError(w, http.StatusBadRequest, "lat y lng son requeridos")
-		return
+	var lat, lng float64
+	if hasLocation {
+		if latStr == "" || lngStr == "" {
+			respondWithError(w, http.StatusBadRequest, "lat y lng son requeridos")
+			return
+		}
+
+		var errLat, errLng error
+		lat, errLat = strconv.ParseFloat(latStr, 64)
+		lng, errLng = strconv.ParseFloat(lngStr, 64)
+
+		if errLat != nil || errLng != nil || math.IsNaN(lat) || math.IsNaN(lng) || math.IsInf(lat, 0) || math.IsInf(lng, 0) || lat < -90 || lat > 90 || lng < -180 || lng > 180 {
+			respondWithError(w, http.StatusBadRequest, "lat y lng deben ser números válidos")
+			return
+		}
 	}
 
-	lat, errLat := strconv.ParseFloat(latStr, 64)
-	lng, errLng := strconv.ParseFloat(lngStr, 64)
+	var (
+		event     *domain.Event
+		userSteps int
+		err       error
+		isAtVenue bool
+	)
 
-	if errLat != nil || errLng != nil || math.IsNaN(lat) || math.IsNaN(lng) || math.IsInf(lat, 0) || math.IsInf(lng, 0) || lat < -90 || lat > 90 || lng < -180 || lng > 180 {
-		respondWithError(w, http.StatusBadRequest, "lat y lng deben ser números válidos")
-		return
+	if hasLocation {
+		event, userSteps, err = h.eventService.GetLiveEventStatus(r.Context(), userID, lat, lng)
+		if err == nil && event != nil {
+			isAtVenue = true
+		}
+	} else {
+		err = sql.ErrNoRows
 	}
 
-	event, userSteps, err := h.eventService.GetLiveEventStatus(r.Context(), userID, lat, lng)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			// Si no está en el predio (o aún no arrancó la ventana geofence), buscar si tiene un evento HOY con RSVP 'going'
+			if todayProvider, ok := h.eventService.(interface {
+				GetTodayGoingEvent(ctx context.Context, userID string) (*domain.Event, error)
+			}); ok {
+				if todayEvent, todayErr := todayProvider.GetTodayGoingEvent(r.Context(), userID); todayErr == nil && todayEvent != nil {
+					h.enrichEventImage(r.Context(), todayEvent)
+					respondWithJSON(w, http.StatusOK, map[string]interface{}{
+						"isLive":              true,
+						"isAtVenue":           false,
+						"attendanceConfirmed": false,
+						"userSteps":           0,
+						"event": map[string]interface{}{
+							"id":        todayEvent.ID,
+							"title":     todayEvent.Title,
+							"date":      todayEvent.Date,
+							"endDate":   todayEvent.EndDate,
+							"location":  todayEvent.Location,
+							"lineup":    todayEvent.Lineup,
+							"genre":     todayEvent.Genre,
+							"bannerUrl": todayEvent.CinematicBannerURL,
+							"latitude":  todayEvent.Latitude,
+							"longitude": todayEvent.Longitude,
+						},
+					})
+					return
+				}
+			}
+
 			respondWithJSON(w, http.StatusOK, map[string]interface{}{
 				"isLive": false,
 				"event":  nil,
@@ -404,16 +452,21 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"isLive":              true,
+		"isAtVenue":           isAtVenue,
 		"attendanceConfirmed": true,
-    "userSteps": userSteps,
+		"userSteps":           userSteps,
 		"event": map[string]interface{}{
-			"id":         event.ID,
-			"title":      event.Title,
-			"date":       event.Date,
-			"endDate":    event.EndDate,
-			"bannerUrl":  event.CinematicBannerURL,
-			"latitude":   event.Latitude,
-			"longitude":  event.Longitude,
+			"id":                   event.ID,
+			"title":                event.Title,
+			"date":                 event.Date,
+			"endDate":              event.EndDate,
+			"location":             event.Location,
+			"lineup":               event.Lineup,
+			"genre":                event.Genre,
+			"bannerUrl":            event.CinematicBannerURL,
+			"latitude":             event.Latitude,
+			"longitude":            event.Longitude,
+			"geofenceRadiusMeters": event.GeofenceRadiusMeters,
 		},
 	})
 }
