@@ -217,12 +217,15 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Route("/dance", func(r chi.Router) {
 			r.With(AuthMiddleware).Post("/sync", cfg.DanceHandler.SyncSteps)
 			r.With(AuthMiddleware).Get("/sessions", cfg.DanceHandler.GetMyDanceSessions)
+			r.With(OptionalAuthMiddleware).Get("/events/{id}/ranking", cfg.DanceHandler.GetEventLiveRanking)
 		})
+		r.With(OptionalAuthMiddleware).Get("/events/{id}/live-ranking", cfg.DanceHandler.GetEventLiveRanking)
 		r.Route("/crews", func(r chi.Router) {
 			r.With(OptionalAuthMiddleware).Get("/", cfg.DanceHandler.GetMyCrews)
 			r.With(AuthMiddleware).Post("/", cfg.DanceHandler.CreatePermanentCrew)
 			r.With(AuthMiddleware).Post("/join/{inviteCode}", cfg.DanceHandler.JoinPermanentCrew)
 			r.With(AuthMiddleware).Post("/{id}/join", cfg.DanceHandler.JoinPermanentCrew)
+			r.With(AuthMiddleware).Post("/{id}/members", cfg.DanceHandler.AddCrewMembers)
 			r.With(OptionalAuthMiddleware).Get("/{id}", cfg.DanceHandler.GetCrewByID)
 			r.With(OptionalAuthMiddleware).Get("/{id}/rankings", cfg.DanceHandler.GetCrewLeaderboards)
 			r.With(OptionalAuthMiddleware).Get("/{id}/events", cfg.DanceHandler.GetCrewEvents)

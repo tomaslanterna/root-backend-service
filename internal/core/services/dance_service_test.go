@@ -39,6 +39,10 @@ func (f *fakeDanceRepo) JoinPermanentCrew(ctx context.Context, userID, codeOrID 
 	return map[string]interface{}{"id": "crew-1", "joinedUser": userID, "code": codeOrID}, nil
 }
 
+func (f *fakeDanceRepo) AddCrewMembers(ctx context.Context, squadID string, memberIDs []string, actorUserID string) (map[string]interface{}, error) {
+	return map[string]interface{}{"id": squadID, "member_ids": memberIDs}, nil
+}
+
 func (f *fakeDanceRepo) AddCrewEvent(ctx context.Context, squadID, eventID, userID string) error {
 	return nil
 }
@@ -69,6 +73,10 @@ func (f *fakeDanceRepo) GetCrewByID(ctx context.Context, squadID string) (map[st
 
 func (f *fakeDanceRepo) GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error) {
 	return f.crewEvents, nil
+}
+
+func (f *fakeDanceRepo) GetEventLiveRanking(ctx context.Context, eventID string) (map[string]interface{}, error) {
+	return map[string]interface{}{"eventId": eventID, "data": []map[string]interface{}{}}, nil
 }
 
 type fakeEventRepoForDance struct {

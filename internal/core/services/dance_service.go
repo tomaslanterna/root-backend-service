@@ -93,6 +93,10 @@ func (s *danceService) JoinPermanentCrew(ctx context.Context, userID, codeOrID s
 	return s.danceRepo.JoinPermanentCrew(ctx, userID, codeOrID)
 }
 
+func (s *danceService) AddCrewMembers(ctx context.Context, squadID string, memberIDs []string, actorUserID string) (map[string]interface{}, error) {
+	return s.danceRepo.AddCrewMembers(ctx, squadID, memberIDs, actorUserID)
+}
+
 func (s *danceService) AddCrewEvent(ctx context.Context, squadID, eventID, userID string) error {
 	return s.danceRepo.AddCrewEvent(ctx, squadID, eventID, userID)
 }
@@ -148,4 +152,8 @@ func (s *danceService) GetCrewByID(ctx context.Context, squadID string) (map[str
 
 func (s *danceService) GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error) {
 	return s.danceRepo.GetCrewEvents(ctx, squadID)
+}
+
+func (s *danceService) GetEventLiveRanking(ctx context.Context, eventID string) (map[string]interface{}, error) {
+	return s.danceRepo.GetEventLiveRanking(ctx, eventID)
 }

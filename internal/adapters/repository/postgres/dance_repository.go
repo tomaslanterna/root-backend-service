@@ -249,6 +249,68 @@ func (r *danceRepository) JoinPermanentCrew(ctx context.Context, userID, codeOrI
 	return r.GetCrewByID(ctx, squadID)
 }
 
+func (r *danceRepository) AddCrewMembers(ctx context.Context, squadID string, memberIDs []string, actorUserID string) (map[string]interface{}, error) {
+	if _, err := uuid.Parse(squadID); err != nil {
+		return nil, errors.New("invalid crew ID")
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin add crew members tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var chatRoomID sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT COALESCE(chat_room_id::text, '')
+		FROM squads
+		WHERE id = $1::uuid
+		LIMIT 1
+	`, squadID).Scan(&chatRoomID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
+		}
+		return nil, fmt.Errorf("finding crew to add members: %w", err)
+	}
+
+	now := time.Now().UTC()
+	for _, rawID := range memberIDs {
+		mid := strings.TrimSpace(rawID)
+		if mid == "" {
+			continue
+		}
+		if _, err := uuid.Parse(mid); err != nil {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO squad_members (squad_id, user_id, role, has_ticket, joined_at)
+			SELECT $1::uuid, u.id, 'member', false, $3
+			FROM users u
+			WHERE u.id = $2::uuid
+			ON CONFLICT (squad_id, user_id) DO NOTHING
+		`, squadID, mid, now); err != nil {
+			return nil, fmt.Errorf("inserting crew member %s: %w", mid, err)
+		}
+
+		if chatRoomID.Valid && chatRoomID.String != "" {
+			_, _ = tx.ExecContext(ctx, `
+				INSERT INTO chat_participants (chat_id, user_id, joined_at)
+				SELECT $1::uuid, u.id, $3
+				FROM users u
+				WHERE u.id = $2::uuid
+				ON CONFLICT DO NOTHING
+			`, chatRoomID.String, mid, now)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing add crew members tx: %w", err)
+	}
+
+	return r.GetCrewByID(ctx, squadID)
+}
+
 func (r *danceRepository) AddCrewEvent(ctx context.Context, squadID, eventID, userID string) error {
 	if _, err := uuid.Parse(squadID); err != nil {
 		return errors.New("invalid crew ID")
@@ -700,4 +762,104 @@ func (r *danceRepository) GetCrewEvents(ctx context.Context, squadID string) ([]
 		})
 	}
 	return events, nil
+}
+
+func (r *danceRepository) GetEventLiveRanking(ctx context.Context, eventID string) (map[string]interface{}, error) {
+	if _, err := uuid.Parse(eventID); err != nil {
+		return map[string]interface{}{
+			"eventId":         eventID,
+			"totalDancers":    0,
+			"activeDancers":   0,
+			"totalEventSteps": 0,
+			"data":            []map[string]interface{}{},
+		}, nil
+	}
+
+	query := `
+		WITH event_participants AS (
+			SELECT user_id,
+			       MIN(confirmed_at) AS joined_at,
+			       BOOL_OR(departed_at IS NULL) AS in_venue
+			FROM event_attendance
+			WHERE event_id = $1::uuid
+			GROUP BY user_id
+			UNION
+			SELECT user_id,
+			       MIN(created_at) AS joined_at,
+			       BOOL_OR(end_time >= NOW() - INTERVAL '45 minutes') AS in_venue
+			FROM dance_sessions
+			WHERE event_id = $1::uuid
+			GROUP BY user_id
+		),
+		merged_participants AS (
+			SELECT user_id,
+			       MIN(joined_at) AS joined_at,
+			       BOOL_OR(in_venue) AS is_active
+			FROM event_participants
+			GROUP BY user_id
+		),
+		user_event_steps AS (
+			SELECT user_id,
+			       COALESCE(SUM(steps_count), 0) AS steps,
+			       MAX(end_time) AS last_sync
+			FROM dance_sessions
+			WHERE event_id = $1::uuid
+			GROUP BY user_id
+		)
+		SELECT u.id,
+		       u.name,
+		       u.username,
+		       u.avatar_url,
+		       COALESCE(ues.steps, 0) AS steps,
+		       COALESCE(mp.is_active, false) OR (ues.last_sync IS NOT NULL AND ues.last_sync >= NOW() - INTERVAL '45 minutes') AS is_active,
+		       COALESCE(ues.last_sync, mp.joined_at, NOW()) AS updated_at
+		FROM merged_participants mp
+		JOIN users u ON u.id = mp.user_id
+		LEFT JOIN user_event_steps ues ON ues.user_id = mp.user_id
+		ORDER BY steps DESC, mp.joined_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	entries := make([]map[string]interface{}, 0)
+	totalEventSteps := 0
+	activeDancers := 0
+	rank := 1
+
+	for rows.Next() {
+		var userID, name, username string
+		var avatarURL *string
+		var steps int
+		var isActive bool
+		var updatedAt time.Time
+		if err := rows.Scan(&userID, &name, &username, &avatarURL, &steps, &isActive, &updatedAt); err != nil {
+			return nil, err
+		}
+		totalEventSteps += steps
+		if isActive {
+			activeDancers++
+		}
+		entries = append(entries, map[string]interface{}{
+			"rank":      rank,
+			"userId":    userID,
+			"name":      name,
+			"username":  username,
+			"avatarUrl": avatarURL,
+			"steps":     steps,
+			"isActive":  isActive,
+			"updatedAt": updatedAt.Format(time.RFC3339),
+		})
+		rank++
+	}
+
+	return map[string]interface{}{
+		"eventId":         eventID,
+		"totalDancers":    len(entries),
+		"activeDancers":   activeDancers,
+		"totalEventSteps": totalEventSteps,
+		"data":            entries,
+	}, nil
 }
