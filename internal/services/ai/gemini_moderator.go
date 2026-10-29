@@ -27,15 +27,96 @@ type moderationResponse struct {
 	Reason      string `json:"reason"`
 }
 
+var rioplatenseInsultRegex = regexp.MustCompile(`(?i)\b(` + strings.Join([]string{
+	`mierda+s?`,
+	`pelotud[oa]s?`,
+	`pelotudeces`,
+	`bolud[oa]s?`,
+	`forr[oa]s?`,
+	`orti[bv]as?`,
+	`mogolic[oa]s?`,
+	`garcas?`,
+	`soretes?`,
+	`hdp`,
+	`hij[oa]s?\s+de\s+(mil\s+|re\s*mil\s+)?putas?`,
+	`concha\s+de\s+(tu|su|la)\s+(madre|hermana|lora)`,
+	`conchud[oa]s?`,
+	`put[oa]s?`,
+	`trol[oa]s?`,
+	`chupapijas?`,
+	`pijas?`,
+	`porongas?`,
+	`vergas?`,
+	`chot[oa]s?`,
+	`cagada`,
+	`cagar(\s+a\s+(palos|trompadas|piñas|tiros))?`,
+	`hacer\s+mierda`,
+	`manga\s+de\s+(giles|ladrones|chorros|forros|garcas|pelotudos)`,
+	`gil(es)?\s+de\s+mierda`,
+	`una\s+bosta`,
+	`estafadores?`,
+	`chorr[oa]s?`,
+	`cornud[oa]s?`,
+	`tarad[oa]s?`,
+	`imbecil(es)?`,
+	`idiotas?`,
+	`estupid[oa]s?`,
+	`negr[oa]s?\s+de\s+mierda`,
+	`ojala\s+se\s+mueran`,
+	`matar(los|las|te)?`,
+}, "|") + `)\b`)
+
+var accentReplacer = strings.NewReplacer(
+	"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u",
+	"Á", "a", "É", "e", "Í", "i", "Ó", "o", "Ú", "u",
+	"ü", "u", "Ü", "u",
+	"0", "o", "1", "i", "3", "e", "4", "a", "@", "a", "$", "s",
+)
+
+func normalizeForModeration(input string) string {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	normalized := accentReplacer.Replace(lower)
+	var b strings.Builder
+	b.Grow(len(normalized))
+	var prev rune
+	count := 0
+	for _, r := range normalized {
+		if r == prev {
+			count++
+			if count >= 2 && r != 'l' && r != 'r' && r != 'c' && r != 's' {
+				continue
+			}
+		} else {
+			prev = r
+			count = 1
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func containsRioplatenseProfanity(content string) (bool, string) {
+	normalized := normalizeForModeration(content)
+	if match := rioplatenseInsultRegex.FindString(normalized); match != "" {
+		return true, fmt.Sprintf("lenguaje ofensivo rioplatense detectado (%s)", match)
+	}
+	return false, ""
+}
+
 func (m *geminiContentModerator) ValidateContent(ctx context.Context, content string) error {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
 		return nil
 	}
 
+	if violated, reason := containsRioplatenseProfanity(trimmed); violated {
+		log.Printf("[Moderation] Comentario bloqueado por filtro local rioplatense. Razón: %s | Contenido: %s\n", reason, trimmed)
+		return domain.ErrContentPolicyViolation
+	}
+
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
-		log.Println("[Moderation] GEMINI_API_KEY no configurada, omitiendo moderación por IA")
+		log.Println("[Moderation] GEMINI_API_KEY no configurada, usando validación local rioplatense")
 		return nil
 	}
 

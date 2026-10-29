@@ -119,6 +119,7 @@ type DanceService interface {
 	SyncSteps(ctx context.Context, userID string, req SyncDanceRequest) (*domain.DanceSession, error)
 	CreatePermanentCrew(ctx context.Context, creatorID string, req CreateCrewRequest) (map[string]interface{}, error)
 	JoinPermanentCrew(ctx context.Context, userID, codeOrID string) (map[string]interface{}, error)
+	AddCrewMembers(ctx context.Context, squadID string, memberIDs []string, actorUserID string) (map[string]interface{}, error)
 	AddCrewEvent(ctx context.Context, squadID, eventID, userID string) error
 	GetCrewLeaderboards(ctx context.Context, squadID string, eventID *string) (map[string]interface{}, error)
 	GetUserCrews(ctx context.Context, userID string) ([]map[string]interface{}, error)
@@ -126,6 +127,7 @@ type DanceService interface {
 	GetUserDanceSessions(ctx context.Context, userID string) ([]map[string]interface{}, error)
 	GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error)
 	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)
+	GetEventLiveRanking(ctx context.Context, eventID string) (map[string]interface{}, error)
 }
 
 type TicketInfoResult struct {

@@ -122,7 +122,10 @@ func buildEventWhere(filter domain.EventFilter, startArg int) (string, []interfa
 		add("e.genre ILIKE $%d", "%"+filter.Genre+"%")
 	}
 	if filter.Location != "" && !strings.EqualFold(filter.Location, "all") {
-		add("e.location ILIKE $%d", "%"+filter.Location+"%")
+		placeholder := fmt.Sprintf("$%d", argIdx)
+		clauses = append(clauses, "(e.location ILIKE "+placeholder+" OR COALESCE(e.department, '') ILIKE "+placeholder+" OR COALESCE(e.country, '') ILIKE "+placeholder+")")
+		args = append(args, "%"+filter.Location+"%")
+		argIdx++
 	}
 	if filter.MinPrice != nil {
 		add("e.price >= $%d", *filter.MinPrice)

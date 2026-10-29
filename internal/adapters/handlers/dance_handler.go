@@ -164,6 +164,53 @@ func (h *DanceHandler) JoinPermanentCrew(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (h *DanceHandler) AddCrewMembers(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+
+	squadID := strings.TrimSpace(chi.URLParam(r, "id"))
+	var body struct {
+		MemberIDs []string `json:"member_ids"`
+		MemberIds []string `json:"memberIds"`
+		UserID    string   `json:"user_id"`
+		UserId    string   `json:"userId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+
+	memberIDs := append(body.MemberIDs, body.MemberIds...)
+	if body.UserID != "" {
+		memberIDs = append(memberIDs, body.UserID)
+	}
+	if body.UserId != "" {
+		memberIDs = append(memberIDs, body.UserId)
+	}
+	if len(memberIDs) == 0 {
+		respondWithError(w, http.StatusBadRequest, "memberIds is required")
+		return
+	}
+
+	crew, err := h.danceService.AddCrewMembers(r.Context(), squadID, memberIDs, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondWithError(w, http.StatusNotFound, "Crew not found")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Failed to add members to crew")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"crew":    crew,
+	})
+}
+
 func (h *DanceHandler) AddCrewEvent(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(UserIDKey).(string)
 	if !ok || userID == "" {
@@ -297,4 +344,20 @@ func (h *DanceHandler) GetCrewEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	h.enrichCrewEventImages(r.Context(), events)
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{"data": events})
+}
+
+func (h *DanceHandler) GetEventLiveRanking(w http.ResponseWriter, r *http.Request) {
+	eventID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if eventID == "" {
+		respondWithError(w, http.StatusBadRequest, "eventId is required")
+		return
+	}
+
+	result, err := h.danceService.GetEventLiveRanking(r.Context(), eventID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to get event live ranking")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, result)
 }
