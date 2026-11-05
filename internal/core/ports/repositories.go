@@ -63,6 +63,7 @@ type EventRepository interface {
 	UpdateEventTicketInfo(ctx context.Context, id string, tiers []domain.TicketTier, source *string) error
 	GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, int, error)
 	BulkCreateEvents(ctx context.Context, events []domain.Event) error
+	UpdateEventBanner(ctx context.Context, id string, banner string) error
 	InitSchema(ctx context.Context) error
 }
 

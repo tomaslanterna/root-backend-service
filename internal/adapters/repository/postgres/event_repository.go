@@ -595,6 +595,22 @@ func (r *EventRepository) GetUserEvents(ctx context.Context, username string) ([
 	return scanEvents(rows)
 }
 
+// UpdateEventBanner reemplaza el flyer del evento. banner es una key de S3 (o una URL absoluta).
+func (r *EventRepository) UpdateEventBanner(ctx context.Context, id string, banner string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE events SET cinematic_banner_url = $1 WHERE id::text = $2`, banner, id)
+	if err != nil {
+		return fmt.Errorf("updating event banner: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking affected rows for banner update: %w", err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *EventRepository) UpdateEventTicketInfo(ctx context.Context, id string, tiers []domain.TicketTier, source *string) error {
 	var tiersJSON []byte
 	var err error

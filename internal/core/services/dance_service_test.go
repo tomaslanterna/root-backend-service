@@ -83,6 +83,10 @@ type fakeEventRepoForDance struct {
 	events map[string]*domain.Event
 }
 
+func (f *fakeEventRepoForDance) UpdateEventBanner(ctx context.Context, id string, banner string) error {
+	return nil
+}
+
 func (f *fakeEventRepoForDance) GetEventByID(ctx context.Context, id string, currentUserID string) (*domain.Event, error) {
 	ev, ok := f.events[id]
 	if !ok {

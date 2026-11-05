@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"encoding/csv"
+	"fmt"
 	"io"
 	"log"
 	"strconv"
@@ -112,6 +113,13 @@ func (s *EventService) GetTodayGoingEvent(ctx context.Context, userID string) (*
 		return repo.GetTodayGoingEvent(ctx, userID)
 	}
 	return nil, nil
+}
+
+func (s *EventService) UpdateEventBanner(ctx context.Context, id string, banner string) error {
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(banner) == "" {
+		return fmt.Errorf("id y banner son obligatorios")
+	}
+	return s.eventRepo.UpdateEventBanner(ctx, id, banner)
 }
 
 func (s *EventService) BulkCreateFromCSV(ctx context.Context, file io.Reader) (int, error) {
