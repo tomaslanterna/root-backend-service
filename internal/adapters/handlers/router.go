@@ -122,6 +122,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// 3. Eventos y Entradas
 		// Subida de imagen para eventos (banner)
 		r.With(AuthMiddleware).Post("/events/image", cfg.EventHandler.UploadEventImage)
+		// Reemplazo del flyer de un evento existente (solo ADMIN)
+		r.With(AuthMiddleware).Patch("/events/{id}/image", cfg.EventHandler.UpdateEventImage)
 		// Importación masiva de eventos
 		r.Post("/events/bulk-csv", cfg.EventHandler.BulkCreateEventsCSV)
 		r.With(OptionalAuthMiddleware).Get("/events", cfg.EventHandler.GetEvents)

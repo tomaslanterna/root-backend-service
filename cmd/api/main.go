@@ -214,7 +214,7 @@ func main() {
 	userHandler := handlers.NewUserHandler(userService)
 	communityHandler := handlers.NewCommunityHandler(communityService)
 	postHandler := handlers.NewPostHandler(postService, s3Service)
-	eventHandler := handlers.NewEventHandler(eventService, s3Service)
+	eventHandler := handlers.NewEventHandler(eventService, s3Service, userRepo)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)

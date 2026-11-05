@@ -30,10 +30,11 @@ const (
 type EventHandler struct {
 	eventService ports.EventService
 	s3Service    s3.S3Service
+	userRepo     ports.UserRepository
 }
 
-func NewEventHandler(eventService ports.EventService, s3Service s3.S3Service) *EventHandler {
-	return &EventHandler{eventService: eventService, s3Service: s3Service}
+func NewEventHandler(eventService ports.EventService, s3Service s3.S3Service, userRepo ports.UserRepository) *EventHandler {
+	return &EventHandler{eventService: eventService, s3Service: s3Service, userRepo: userRepo}
 }
 
 func parseOptionalBool(value, name string) (*bool, error) {
@@ -549,6 +550,65 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	respondWithJSON(w, http.StatusOK, results)
+}
+
+// UpdateEventImage reemplaza el flyer de un evento existente (PATCH /events/{id}/image).
+// Solo para usuarios ADMIN. Recibe una imagen en el campo multipart "image".
+func (h *EventHandler) UpdateEventImage(w http.ResponseWriter, r *http.Request) {
+	if h.s3Service == nil {
+		respondWithError(w, http.StatusInternalServerError, "S3 Service not initialized")
+		return
+	}
+	userID, _ := r.Context().Value(UserIDKey).(string)
+	if h.userRepo == nil || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "No autorizado")
+		return
+	}
+	user, err := h.userRepo.GetUserByID(r.Context(), userID)
+	if err != nil || user == nil || user.Role != "ADMIN" {
+		respondWithError(w, http.StatusForbidden, "Solo un administrador puede cambiar el flyer de un evento")
+		return
+	}
+
+	eventID := chi.URLParam(r, "id")
+	if eventID == "" {
+		respondWithError(w, http.StatusBadRequest, "ID de evento requerido")
+		return
+	}
+	if err := r.ParseMultipartForm(15 << 20); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Imagen demasiado grande o inválida")
+		return
+	}
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Falta la imagen (campo 'image')")
+		return
+	}
+	defer file.Close()
+	contentType := header.Header.Get("Content-Type")
+	if !strings.HasPrefix(contentType, "image/") {
+		respondWithError(w, http.StatusBadRequest, "El archivo tiene que ser una imagen")
+		return
+	}
+
+	key := fmt.Sprintf("events/%s/%d_%s", eventID, time.Now().UnixNano(), header.Filename)
+	if _, err := h.s3Service.UploadToS3(r.Context(), file, key, contentType); err != nil {
+		log.Printf("Failed to upload banner for event %s: %v", eventID, err)
+		respondWithError(w, http.StatusInternalServerError, "No se pudo subir la imagen")
+		return
+	}
+	if err := h.eventService.UpdateEventBanner(r.Context(), eventID, key); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondWithError(w, http.StatusNotFound, "Evento no encontrado")
+			return
+		}
+		log.Printf("Failed to update banner for event %s: %v", eventID, err)
+		respondWithError(w, http.StatusInternalServerError, "No se pudo actualizar el evento")
+		return
+	}
+
+	viewURL, _ := h.s3Service.GenerateViewUrl(r.Context(), key, 7*24*time.Hour)
+	respondWithJSON(w, http.StatusOK, map[string]string{"id": eventID, "key": key, "cinematicBannerUrl": viewURL})
 }
 
 func (h *EventHandler) enrichEventImages(ctx context.Context, events []domain.Event) {

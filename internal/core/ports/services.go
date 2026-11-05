@@ -56,6 +56,7 @@ type EventService interface {
 	GetUserEvents(ctx context.Context, username string) ([]domain.Event, error)
 	GetLiveEventStatus(ctx context.Context, userID string, lat, lng float64) (*domain.Event, int, error)
 	BulkCreateFromCSV(ctx context.Context, file io.Reader) (int, error)
+	UpdateEventBanner(ctx context.Context, id string, banner string) error
 }
 
 type FeedData struct {
