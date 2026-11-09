@@ -561,6 +561,16 @@ func (h *EventHandler) enrichEventImages(ctx context.Context, events []domain.Ev
 				events[i].CinematicBannerURL = url
 			}
 		}
+		for j := range events[i].Artists {
+			if events[i].Artists[j].Artist != nil && events[i].Artists[j].Artist.AvatarURL != nil {
+				raw := *events[i].Artists[j].Artist.AvatarURL
+				if raw != "" && !strings.HasPrefix(raw, "http") {
+					if url, err := h.s3Service.GenerateViewUrl(ctx, raw, 7*24*time.Hour); err == nil {
+						events[i].Artists[j].Artist.AvatarURL = &url
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -571,6 +581,16 @@ func (h *EventHandler) enrichEventImage(ctx context.Context, event *domain.Event
 	if event.CinematicBannerURL != "" && !strings.HasPrefix(event.CinematicBannerURL, "http") {
 		if url, err := h.s3Service.GenerateViewUrl(ctx, event.CinematicBannerURL, 7*24*time.Hour); err == nil {
 			event.CinematicBannerURL = url
+		}
+	}
+	for j := range event.Artists {
+		if event.Artists[j].Artist != nil && event.Artists[j].Artist.AvatarURL != nil {
+			raw := *event.Artists[j].Artist.AvatarURL
+			if raw != "" && !strings.HasPrefix(raw, "http") {
+				if url, err := h.s3Service.GenerateViewUrl(ctx, raw, 7*24*time.Hour); err == nil {
+					event.Artists[j].Artist.AvatarURL = &url
+				}
+			}
 		}
 	}
 }
