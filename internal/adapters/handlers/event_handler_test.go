@@ -20,9 +20,9 @@ import (
 )
 
 type eventServiceStub struct {
-	filter       domain.EventFilter
-	currentUser  string
-	rsvpUser     string
+	filter           domain.EventFilter
+	currentUser      string
+	rsvpUser         string
 	rsvpStatus       string
 	commentText      string
 	createCommentErr error
@@ -177,6 +177,31 @@ func TestRSVPUsesAuthenticatedUserAndRejectsArbitraryUserID(t *testing.T) {
 	}
 	if service.rsvpUser != "user-1" || service.rsvpStatus != "not_going" {
 		t.Fatalf("unexpected rsvp identity/status: %s %s", service.rsvpUser, service.rsvpStatus)
+	}
+}
+
+func TestRSVPDeleteClearsAttendance(t *testing.T) {
+	service := &eventServiceStub{}
+	handler := NewEventHandler(service, nil, nil)
+	request := requestWithRouteAndUser(httptest.NewRequest(http.MethodDelete, "/v1/events/event-1/rsvp", nil), "event-1", "user-1")
+	response := httptest.NewRecorder()
+
+	handler.RSVPEvent(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if service.rsvpStatus != "" {
+		t.Fatalf("expected empty status to clear RSVP, got %q", service.rsvpStatus)
+	}
+	var body struct {
+		UserRSVP *string `json:"userRsvp"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.UserRSVP != nil {
+		t.Fatalf("expected null userRsvp, got %q", *body.UserRSVP)
 	}
 }
 

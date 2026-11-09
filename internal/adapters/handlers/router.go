@@ -131,6 +131,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(AuthMiddleware).Get("/events/live-status", cfg.EventHandler.GetLiveEventStatus)
 		r.With(OptionalAuthMiddleware).Get("/events/{id}", cfg.EventHandler.GetEventByID)
 		r.With(AuthMiddleware).Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
+		r.With(AuthMiddleware).Delete("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
 		r.With(AuthMiddleware).Get("/events/{id}/attendees/followed", cfg.EventHandler.GetFollowedGoingAttendees)
 		r.Route("/events/{id}/comments", func(r chi.Router) {
 			r.Get("/", cfg.EventHandler.GetEventComments)
@@ -140,6 +141,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		// 4. Comunidades
 		r.With(OptionalAuthMiddleware).Get("/communities", cfg.CommunityHandler.GetCommunities)
+		r.With(AuthMiddleware).Post("/communities", cfg.CommunityHandler.CreateCommunity)
 		r.With(OptionalAuthMiddleware).Get("/communities/{id}", cfg.CommunityHandler.GetCommunity)
 		r.With(AuthMiddleware).Post("/communities/{id}/join", cfg.CommunityHandler.JoinCommunity)
 		r.With(AuthMiddleware).Delete("/communities/{id}/membership", cfg.CommunityHandler.LeaveCommunity)

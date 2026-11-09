@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"math"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
@@ -171,9 +171,9 @@ func (h *EventHandler) GetFeaturedEvents(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error obteniendo eventos destacados")
 		return
 	}
-	
+
 	h.enrichEventImages(r.Context(), events)
-	
+
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"data": events,
 		"meta": map[string]interface{}{"total": len(events)},
@@ -208,17 +208,19 @@ func (h *EventHandler) RSVPEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var request struct {
+	request := struct {
 		Status string `json:"status"`
+	}{}
+	if r.Method != http.MethodDelete {
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&request); err != nil {
+			respondWithError(w, http.StatusBadRequest, "Cuerpo de solicitud inválido")
+			return
+		}
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&request); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Cuerpo de solicitud inválido")
-		return
-	}
-	if request.Status != "going" && request.Status != "not_going" {
+	if r.Method != http.MethodDelete && request.Status != "going" && request.Status != "not_going" {
 		respondWithError(w, http.StatusBadRequest, "status debe ser going o not_going")
 		return
 	}
@@ -232,9 +234,13 @@ func (h *EventHandler) RSVPEvent(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Error procesando RSVP")
 		return
 	}
+	var responseStatus interface{}
+	if userRSVP != "" {
+		responseStatus = userRSVP
+	}
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true, "goingCount": goingCount,
-		"notGoingCount": notGoingCount, "userRsvp": userRSVP,
+		"notGoingCount": notGoingCount, "userRsvp": responseStatus,
 	})
 }
 
@@ -497,7 +503,7 @@ func (h *EventHandler) BulkCreateEventsCSV(w http.ResponseWriter, r *http.Reques
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Eventos creados exitosamente",
-		"count": count,
+		"count":   count,
 	})
 }
 

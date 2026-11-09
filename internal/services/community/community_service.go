@@ -6,6 +6,7 @@ import (
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 	"strings"
+	"unicode"
 )
 
 type communityService struct {
@@ -14,6 +15,27 @@ type communityService struct {
 
 func NewCommunityService(repo ports.CommunityRepository) ports.CommunityService {
 	return &communityService{repo: repo}
+}
+
+func (s *communityService) CreateCommunity(ctx context.Context, ownerID string, input domain.CreateCommunityInput) (*domain.Community, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Category = strings.ToLower(strings.TrimSpace(input.Category))
+	input.Zone = strings.TrimSpace(input.Zone)
+	input.CountryID = strings.ToUpper(strings.TrimSpace(input.CountryID))
+	input.Description = strings.TrimSpace(input.Description)
+
+	if ownerID == "" || len([]rune(input.Name)) < 3 || len([]rune(input.Name)) > 80 ||
+		len([]rune(input.Category)) < 2 || len([]rune(input.Category)) > 40 ||
+		len([]rune(input.Zone)) > 80 || len([]rune(input.Description)) > 500 ||
+		len(input.CountryID) != 2 {
+		return nil, domain.ErrCommunityInvalid
+	}
+	for _, character := range input.CountryID {
+		if !unicode.IsLetter(character) {
+			return nil, domain.ErrCommunityInvalid
+		}
+	}
+	return s.repo.CreateCommunity(ctx, ownerID, input)
 }
 
 func (s *communityService) GetCommunities(ctx context.Context, filter domain.CommunityFilter, currentUserID string) ([]domain.Community, int, error) {

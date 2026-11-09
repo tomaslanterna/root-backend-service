@@ -266,17 +266,31 @@ func (r *EventRepository) RSVPEvent(ctx context.Context, userID, eventID, status
 		return 0, 0, "", sql.ErrNoRows
 	}
 
-	result, err := tx.ExecContext(ctx, `
-		INSERT INTO event_rsvps (user_id, event_id, status, created_at)
-		SELECT u.id, e.id, $3, NOW() FROM users u, events e
-		WHERE u.id::text = $1 AND e.id::text = $2
-		ON CONFLICT (user_id, event_id)
-		DO UPDATE SET status = EXCLUDED.status, created_at = NOW()`, userID, eventID, status)
-	if err != nil {
-		return 0, 0, "", fmt.Errorf("upserting event rsvp: %w", err)
+	var result sql.Result
+	if status == "" {
+		var userExists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id::text = $1)`, userID).Scan(&userExists); err != nil {
+			return 0, 0, "", fmt.Errorf("checking user before clearing rsvp: %w", err)
+		}
+		if !userExists {
+			return 0, 0, "", sql.ErrNoRows
+		}
+		result, err = tx.ExecContext(ctx, `DELETE FROM event_rsvps WHERE user_id::text = $1 AND event_id::text = $2`, userID, eventID)
+	} else {
+		result, err = tx.ExecContext(ctx, `
+			INSERT INTO event_rsvps (user_id, event_id, status, created_at)
+			SELECT u.id, e.id, $3, NOW() FROM users u, events e
+			WHERE u.id::text = $1 AND e.id::text = $2
+			ON CONFLICT (user_id, event_id)
+			DO UPDATE SET status = EXCLUDED.status, created_at = NOW()`, userID, eventID, status)
 	}
-	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
-		return 0, 0, "", sql.ErrNoRows
+	if err != nil {
+		return 0, 0, "", fmt.Errorf("saving event rsvp: %w", err)
+	}
+	if status != "" {
+		if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
+			return 0, 0, "", sql.ErrNoRows
+		}
 	}
 
 	var goingCount, notGoingCount int

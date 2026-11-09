@@ -76,6 +76,7 @@ type PostService interface {
 }
 
 type CommunityService interface {
+	CreateCommunity(ctx context.Context, ownerID string, input domain.CreateCommunityInput) (*domain.Community, error)
 	SetMuted(ctx context.Context, communityID, userID string, muted bool) error
 	MarkRead(ctx context.Context, communityID, userID, postID string) error
 	SetPinned(ctx context.Context, communityID, userID, postID string, pinned bool) error

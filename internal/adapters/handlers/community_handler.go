@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -88,6 +89,29 @@ func (h *CommunityHandler) GetCommunities(w http.ResponseWriter, r *http.Request
 			"hasMore": offset+len(communities) < total,
 		},
 	})
+}
+
+func (h *CommunityHandler) CreateCommunity(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "Usuario no autenticado")
+		return
+	}
+
+	var input domain.CreateCommunityInput
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Cuerpo de solicitud inválido")
+		return
+	}
+	community, err := h.communityService.CreateCommunity(r.Context(), userID, input)
+	if err != nil {
+		respondWithCommunityError(w, err)
+		return
+	}
+	respondWithJSON(w, http.StatusCreated, community)
 }
 
 func (h *CommunityHandler) GetCommunity(w http.ResponseWriter, r *http.Request) {

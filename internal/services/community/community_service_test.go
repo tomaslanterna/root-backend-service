@@ -14,6 +14,12 @@ type communityRepositoryStub struct {
 	leaveCalls   int
 	currentUser  string
 	membersCount int
+	createdInput domain.CreateCommunityInput
+}
+
+func (s *communityRepositoryStub) CreateCommunity(_ context.Context, _ string, input domain.CreateCommunityInput) (*domain.Community, error) {
+	s.createdInput = input
+	return &domain.Community{ID: "community-new", Name: input.Name}, nil
 }
 
 func (s *communityRepositoryStub) InitSchema(context.Context) error { return nil }
@@ -80,5 +86,24 @@ func TestJoinAndLeaveAreSeparateIdempotentOperations(t *testing.T) {
 
 	if repository.joinCalls != 2 || repository.leaveCalls != 1 {
 		t.Fatalf("unexpected operation calls: joins=%d leaves=%d", repository.joinCalls, repository.leaveCalls)
+	}
+}
+
+func TestCreateCommunityNormalizesAndValidatesInput(t *testing.T) {
+	repository := &communityRepositoryStub{}
+	service := NewCommunityService(repository)
+
+	created, err := service.CreateCommunity(context.Background(), "rrpp-1", domain.CreateCommunityInput{
+		Name: "  Techno del Este  ", Category: " Electrónica ", Zone: " Maldonado ", CountryID: "uy", Description: "  Fechas y comunidad. ",
+	})
+	if err != nil {
+		t.Fatalf("CreateCommunity returned an error: %v", err)
+	}
+	if created.ID != "community-new" || repository.createdInput.Name != "Techno del Este" || repository.createdInput.Category != "electrónica" || repository.createdInput.CountryID != "UY" {
+		t.Fatalf("community input was not normalized: %+v", repository.createdInput)
+	}
+
+	if _, err := service.CreateCommunity(context.Background(), "rrpp-1", domain.CreateCommunityInput{Name: "x", Category: "general", CountryID: "UY"}); err != domain.ErrCommunityInvalid {
+		t.Fatalf("expected invalid community error, got %v", err)
 	}
 }
