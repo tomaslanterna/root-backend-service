@@ -135,10 +135,27 @@ func (s *postService) CreatePost(ctx context.Context, post *domain.Post) error {
 	post.Content = strings.TrimSpace(post.Content)
 	if post.Title != nil {
 		title := strings.TrimSpace(*post.Title)
-		post.Title = &title
+		if title == "" {
+			post.Title = nil
+		} else {
+			post.Title = &title
+		}
 	}
-	if (post.Title == nil || *post.Title == "") && post.Content == "" {
-		return errors.New("post must have a title or content")
+	if post.HeaderImageURL != nil {
+		imageURL := strings.TrimSpace(*post.HeaderImageURL)
+		if imageURL == "" {
+			post.HeaderImageURL = nil
+		} else {
+			post.HeaderImageURL = &imageURL
+		}
+	}
+
+	hasTitle := post.Title != nil && *post.Title != ""
+	hasContent := post.Content != ""
+	hasImage := post.HeaderImageURL != nil && *post.HeaderImageURL != ""
+
+	if !hasTitle && !hasContent && !hasImage {
+		return errors.New("post must have a title, content or image")
 	}
 	return s.postRepo.CreatePost(ctx, post)
 }
@@ -174,13 +191,29 @@ func (s *postService) CreateCommunityAnnouncement(ctx context.Context, community
 	post.Content = strings.TrimSpace(post.Content)
 	if post.Title != nil {
 		title := strings.TrimSpace(*post.Title)
-		post.Title = &title
-		if len([]rune(title)) > 120 {
+		if title == "" {
+			post.Title = nil
+		} else {
+			post.Title = &title
+		}
+		if post.Title != nil && len([]rune(*post.Title)) > 120 {
 			return nil, errors.New("announcement title cannot exceed 120 characters")
 		}
 	}
-	if (post.Title == nil || *post.Title == "") && post.Content == "" {
-		return nil, errors.New("announcement must have a title or content")
+	if post.HeaderImageURL != nil {
+		imageURL := strings.TrimSpace(*post.HeaderImageURL)
+		if imageURL == "" {
+			post.HeaderImageURL = nil
+		} else {
+			post.HeaderImageURL = &imageURL
+		}
+	}
+	hasAnnouncementTitle := post.Title != nil && *post.Title != ""
+	hasAnnouncementContent := post.Content != ""
+	hasAnnouncementImage := post.HeaderImageURL != nil && *post.HeaderImageURL != ""
+
+	if !hasAnnouncementTitle && !hasAnnouncementContent && !hasAnnouncementImage {
+		return nil, errors.New("announcement must have a title, content or image")
 	}
 	if len([]rune(post.Content)) > 2000 {
 		return nil, errors.New("announcement content cannot exceed 2000 characters")

@@ -25,7 +25,9 @@ func (r *PushRepository) InitSchema(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS push_devices (
  id UUID PRIMARY KEY, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  token TEXT NOT NULL UNIQUE CHECK(length(token) BETWEEN 20 AND 4096),
- platform TEXT NOT NULL DEFAULT 'android' CHECK(platform='android'), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+ platform TEXT NOT NULL DEFAULT 'android' CHECK(platform IN ('android','ios')), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`ALTER TABLE push_devices DROP CONSTRAINT IF EXISTS push_devices_platform_check`,
+		`ALTER TABLE push_devices ADD CONSTRAINT push_devices_platform_check CHECK(platform IN ('android','ios'))`,
 		`CREATE INDEX IF NOT EXISTS push_devices_user_idx ON push_devices(user_id)`,
 		`CREATE TABLE IF NOT EXISTS push_jobs (
  id BIGSERIAL PRIMARY KEY, device_id UUID NOT NULL REFERENCES push_devices(id) ON DELETE CASCADE,
@@ -57,7 +59,10 @@ func (r *PushRepository) InitSchema(ctx context.Context) error {
 	return tx.Commit()
 }
 
-func (r *PushRepository) RegisterDevice(ctx context.Context, userID, id, token string) error {
+func (r *PushRepository) RegisterDevice(ctx context.Context, userID, id, token, platform string) error {
+	if platform != "ios" {
+		platform = "android"
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -70,8 +75,8 @@ func (r *PushRepository) RegisterDevice(ctx context.Context, userID, id, token s
 	if _, err := tx.ExecContext(ctx, `DELETE FROM push_devices WHERE token=$1 AND id<>$2`, token, id); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO push_devices(id,user_id,token) VALUES($1,$2,$3)
- ON CONFLICT(id) DO UPDATE SET user_id=EXCLUDED.user_id,token=EXCLUDED.token,updated_at=NOW()`, id, userID, token); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO push_devices(id,user_id,token,platform) VALUES($1,$2,$3,$4)
+ ON CONFLICT(id) DO UPDATE SET user_id=EXCLUDED.user_id,token=EXCLUDED.token,platform=EXCLUDED.platform,updated_at=NOW()`, id, userID, token, platform); err != nil {
 		return err
 	}
 	// Never send queued notifications from an old account or an old token.
@@ -91,9 +96,9 @@ func (r *PushRepository) ClaimJobs(ctx context.Context) ([]domain.PushJob, error
  SELECT id FROM push_jobs WHERE NOT done AND attempts<5 AND available_at<=NOW()
  AND created_at>NOW()-INTERVAL '24 hours' ORDER BY available_at,id LIMIT 10 FOR UPDATE SKIP LOCKED
  ) UPDATE push_jobs j SET attempts=attempts+1,available_at=NOW()+INTERVAL '2 minutes'
- FROM next,messages m LEFT JOIN users sender ON sender.id=m.sender_id
- WHERE j.id=next.id AND m.id=j.message_id
- RETURNING j.id,j.attempts,j.device_id,j.user_id,j.token,j.message_id,m.chat_id,
+ FROM next,messages m LEFT JOIN users sender ON sender.id=m.sender_id, push_devices d
+ WHERE j.id=next.id AND m.id=j.message_id AND d.id=j.device_id
+ RETURNING j.id,j.attempts,j.device_id,j.user_id,j.token,d.platform,j.message_id,m.chat_id,
  LEFT(COALESCE(NULLIF(TRIM(sender.name),''),NULLIF(TRIM(sender.username),''),'Nuevo mensaje'),81),
  CASE WHEN m.type='text' THEN LEFT(COALESCE(m.content,''),241) ELSE '' END,COALESCE(m.type,'')`)
 	if err != nil {
@@ -103,7 +108,7 @@ func (r *PushRepository) ClaimJobs(ctx context.Context) ([]domain.PushJob, error
 	jobs := make([]domain.PushJob, 0)
 	for rows.Next() {
 		var job domain.PushJob
-		if err := rows.Scan(&job.ID, &job.Attempt, &job.DeviceID, &job.UserID, &job.Token, &job.MessageID, &job.ChatID,
+		if err := rows.Scan(&job.ID, &job.Attempt, &job.DeviceID, &job.UserID, &job.Token, &job.Platform, &job.MessageID, &job.ChatID,
 			&job.SenderName, &job.Content, &job.MessageType); err != nil {
 			return nil, err
 		}

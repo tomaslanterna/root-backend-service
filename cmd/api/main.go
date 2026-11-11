@@ -127,15 +127,44 @@ func main() {
 			}
 		}
 	}()
-	var pushSender ports.PushSender
+	var fcmSender ports.PushSender
 	if os.Getenv("PUSH_ENABLED") == "true" {
 		sender, err := pushadapter.NewFCM(pushCtx, os.Getenv("FIREBASE_PROJECT_ID"))
 		if err != nil {
-			log.Fatalf("Could not configure push notifications: %v", err)
+			log.Fatalf("Could not configure FCM push notifications: %v", err)
 		}
-		pushSender = sender
+		fcmSender = sender
+		log.Println("FCM push (Android) enabled")
 	} else {
 		log.Println("Android push disabled; configure Firebase and PUSH_ENABLED=true to enable")
+	}
+
+	var apnsSender ports.PushSender
+	if os.Getenv("APNS_ENABLED") == "true" {
+		keyPath := os.Getenv("APNS_KEY_PATH")
+		keyID := os.Getenv("APNS_KEY_ID")
+		teamID := os.Getenv("APNS_TEAM_ID")
+		bundleID := os.Getenv("APNS_BUNDLE_ID")
+		production := os.Getenv("APNS_PRODUCTION") == "true"
+		sender, err := pushadapter.NewAPNS(pushadapter.APNSConfig{
+			KeyPath:    keyPath,
+			KeyID:      keyID,
+			TeamID:     teamID,
+			BundleID:   bundleID,
+			Production: production,
+		})
+		if err != nil {
+			log.Fatalf("Could not configure APNs push notifications: %v", err)
+		}
+		apnsSender = sender
+		log.Printf("APNs push (iOS) enabled (production=%v)", production)
+	} else {
+		log.Println("iOS APNs push disabled; configure APNS_ENABLED=true and APNS credentials to enable")
+	}
+
+	var pushSender ports.PushSender
+	if fcmSender != nil || apnsSender != nil {
+		pushSender = pushadapter.NewMultiPushSender(fcmSender, apnsSender)
 	}
 	pushService := coreServices.NewPushService(pushRepo, pushSender)
 	pushDone := make(chan struct{})

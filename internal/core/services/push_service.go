@@ -18,8 +18,8 @@ func NewPushService(repo ports.PushRepository, sender ports.PushSender) *PushSer
 	return &PushService{repo: repo, sender: sender}
 }
 func (s *PushService) Enabled() bool { return s.sender != nil }
-func (s *PushService) RegisterDevice(ctx context.Context, userID, id, token string) error {
-	return s.repo.RegisterDevice(ctx, userID, id, token)
+func (s *PushService) RegisterDevice(ctx context.Context, userID, id, token, platform string) error {
+	return s.repo.RegisterDevice(ctx, userID, id, token, platform)
 }
 func (s *PushService) RemoveDevice(ctx context.Context, userID, id string) error {
 	return s.repo.RemoveDevice(ctx, userID, id)

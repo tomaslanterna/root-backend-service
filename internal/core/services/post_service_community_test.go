@@ -105,3 +105,47 @@ func TestGenericCommunityPostCannotBypassPublishingPermission(t *testing.T) {
 		t.Fatalf("expected forbidden error, got %v", err)
 	}
 }
+
+func TestCreatePostAllowsImageWithoutContentOrTitle(t *testing.T) {
+	imageURL := "posts/photo_123.jpg"
+	postRepository := &postRepositoryForCommunityStub{}
+	service := NewPostService(postRepository, &communityRepositoryForPostStub{canPublish: true})
+
+	post := &domain.Post{
+		AuthorID:       "user-1",
+		Content:        "",
+		HeaderImageURL: &imageURL,
+	}
+
+	err := service.CreatePost(context.Background(), post)
+	if err != nil {
+		t.Fatalf("expected post with image only to succeed, got %v", err)
+	}
+
+	// Verify post without title, content or image fails
+	emptyPost := &domain.Post{
+		AuthorID: "user-1",
+		Content:  "   ",
+	}
+	err = service.CreatePost(context.Background(), emptyPost)
+	if err == nil || err.Error() != "post must have a title, content or image" {
+		t.Fatalf("expected error 'post must have a title, content or image', got %v", err)
+	}
+}
+
+func TestCreateCommunityAnnouncementAllowsImageWithoutContentOrTitle(t *testing.T) {
+	imageURL := "announcements/flyer.jpg"
+	postRepository := &postRepositoryForCommunityStub{}
+	service := NewPostService(postRepository, &communityRepositoryForPostStub{canPublish: true})
+
+	announcement := &domain.Post{
+		HeaderImageURL: &imageURL,
+	}
+	created, err := service.CreateCommunityAnnouncement(context.Background(), "electronica", "rrpp-1", announcement)
+	if err != nil {
+		t.Fatalf("expected announcement with image only to succeed, got %v", err)
+	}
+	if created == nil || created.ID != "post-1" {
+		t.Fatalf("unexpected created announcement: %+v", created)
+	}
+}

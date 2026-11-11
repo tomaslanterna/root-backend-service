@@ -14,12 +14,12 @@ import (
 )
 
 type pushRepositoryFake struct {
-	user, id, token string
-	err             error
+	user, id, token, platform string
+	err                       error
 }
 
-func (p *pushRepositoryFake) RegisterDevice(_ context.Context, user, id, token string) error {
-	p.user, p.id, p.token = user, id, token
+func (p *pushRepositoryFake) RegisterDevice(_ context.Context, user, id, token, platform string) error {
+	p.user, p.id, p.token, p.platform = user, id, token, platform
 	return p.err
 }
 func (p *pushRepositoryFake) RemoveDevice(_ context.Context, user, id string) error {
@@ -46,10 +46,11 @@ func TestPushRegistrationHTTP(t *testing.T) {
 		repoErr              error
 		status               int
 	}{
-		{"valid", "jwt-user", id, valid, false, nil, 204},
+		{"valid android", "jwt-user", id, valid, false, nil, 204},
+		{"valid ios", "jwt-user", id, `{"platform":"ios","token":"abcdefghijklmnopqrstuvwxyz"}`, false, nil, 204},
 		{"unauthenticated", "", id, valid, false, nil, 401},
 		{"arbitrary user rejected", "jwt-user", id, `{"platform":"android","token":"abcdefghijklmnopqrstuvwxyz","userId":"attacker"}`, false, nil, 400},
-		{"ios APNs rejected", "jwt-user", id, `{"platform":"ios","token":"abcdefghijklmnopqrstuvwxyz"}`, false, nil, 400},
+		{"unknown platform rejected", "jwt-user", id, `{"platform":"windows","token":"abcdefghijklmnopqrstuvwxyz"}`, false, nil, 400},
 		{"short token", "jwt-user", id, `{"platform":"android","token":"short"}`, false, nil, 400},
 		{"invalid id", "jwt-user", "invalid", valid, false, nil, 400},
 		{"extra JSON", "jwt-user", id, valid + `{}`, false, nil, 400},

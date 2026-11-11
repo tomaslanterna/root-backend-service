@@ -21,10 +21,11 @@ go.work.sum
 # Env files
 .env
 
-# Firebase server credentials (never commit private keys)
+# Firebase & Apple server credentials (never commit private keys)
 secrets/
 *firebase-adminsdk*.json
 service-account*.json
+*.p8
 
 # MacOS specific
 .DS_Store

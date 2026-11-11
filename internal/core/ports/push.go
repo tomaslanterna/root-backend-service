@@ -7,7 +7,7 @@ import (
 )
 
 type PushRepository interface {
-	RegisterDevice(context.Context, string, string, string) error
+	RegisterDevice(ctx context.Context, userID, id, token, platform string) error
 	RemoveDevice(context.Context, string, string) error
 	ClaimJobs(context.Context) ([]domain.PushJob, error)
 	CanSend(context.Context, domain.PushJob) (bool, error)

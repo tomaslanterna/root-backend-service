@@ -98,7 +98,7 @@ func TestPushPostgresIntegration(t *testing.T) {
 	}
 	deviceA, deviceB, deviceO := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	for _, device := range []struct{ user, id, token string }{{a, deviceA, "token-a-abcdefghijklmnopqrstuvwxyz"}, {b, deviceB, "token-b-abcdefghijklmnopqrstuvwxyz"}, {outsider, deviceO, "token-o-abcdefghijklmnopqrstuvwxyz"}} {
-		if err := r.RegisterDevice(ctx, device.user, device.id, device.token); err != nil {
+		if err := r.RegisterDevice(ctx, device.user, device.id, device.token, "android"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -208,7 +208,7 @@ func TestPushPostgresIntegration(t *testing.T) {
 	if err := r.FinishJob(ctx, job, false, time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.RegisterDevice(ctx, outsider, deviceB, "rotated-b-abcdefghijklmnopqrstuvwxyz"); err != nil {
+	if err := r.RegisterDevice(ctx, outsider, deviceB, "rotated-b-abcdefghijklmnopqrstuvwxyz", "android"); err != nil {
 		t.Fatal(err)
 	}
 	if allowed, err := r.CanSend(ctx, job); err != nil || allowed {

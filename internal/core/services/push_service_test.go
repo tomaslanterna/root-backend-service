@@ -17,7 +17,7 @@ type pushRepoStub struct {
 	expired        int
 }
 
-func (r *pushRepoStub) RegisterDevice(context.Context, string, string, string) error { return nil }
+func (r *pushRepoStub) RegisterDevice(context.Context, string, string, string, string) error { return nil }
 func (r *pushRepoStub) RemoveDevice(context.Context, string, string) error           { return nil }
 func (r *pushRepoStub) ClaimJobs(context.Context) ([]domain.PushJob, error)          { return r.jobs, nil }
 func (r *pushRepoStub) CanSend(context.Context, domain.PushJob) (bool, error) {

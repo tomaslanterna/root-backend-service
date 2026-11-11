@@ -37,15 +37,15 @@ func (h *PushHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&body) != nil || decoder.Decode(new(any)) != io.EOF || body.Platform != "android" || len(body.Token) < 20 || len(body.Token) > 4096 || strings.ContainsAny(body.Token, " \t\r\n") {
-		respondWithError(w, 400, "Invalid Android push registration")
+	if decoder.Decode(&body) != nil || decoder.Decode(new(any)) != io.EOF || (body.Platform != "android" && body.Platform != "ios") || len(body.Token) < 20 || len(body.Token) > 4096 || strings.ContainsAny(body.Token, " \t\r\n") {
+		respondWithError(w, 400, "Invalid push registration")
 		return
 	}
 	if !h.service.Enabled() {
 		respondWithError(w, 503, "Push notifications are not configured")
 		return
 	}
-	if err := h.service.RegisterDevice(r.Context(), userID, id.String(), body.Token); err != nil {
+	if err := h.service.RegisterDevice(r.Context(), userID, id.String(), body.Token, body.Platform); err != nil {
 		log.Printf("push registration failed")
 		respondWithError(w, 500, "Could not register device")
 		return
