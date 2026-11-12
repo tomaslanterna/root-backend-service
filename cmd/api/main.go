@@ -58,6 +58,7 @@ func main() {
 	chatRepo := postgres.NewChatRepository(db)
 	messageRepo := postgres.NewMessageRepository(db)
 	pushRepo := postgres.NewPushRepository(db)
+	notificationRepo := postgres.NewNotificationRepository(db)
 	transferRepo := postgres.NewTransferRepository(db)
 	eventRepo := postgres.NewEventRepository(db)
 	postRepo := postgres.NewPostRepository(db)
@@ -79,6 +80,9 @@ func main() {
 	}
 	if err := initSchema(pushRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize push schema: %v", err)
+	}
+	if err := initSchema(notificationRepo.InitSchema); err != nil {
+		log.Fatalf("Could not initialize notification schema: %v", err)
 	}
 	recoveryRepo := postgres.NewPasswordRecoveryRepository(db)
 	if err := initSchema(recoveryRepo.InitSchema); err != nil {
@@ -167,16 +171,19 @@ func main() {
 		pushSender = pushadapter.NewMultiPushSender(fcmSender, apnsSender)
 	}
 	pushService := coreServices.NewPushService(pushRepo, pushSender)
+	notificationService := coreServices.NewNotificationService(notificationRepo, pushRepo, pushSender)
 	pushDone := make(chan struct{})
 	go func() {
 		defer close(pushDone)
-		if !*backgroundWorkers || !pushService.Enabled() {
+		if !*backgroundWorkers {
 			return
 		}
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 		pruneTicker := time.NewTicker(time.Hour)
 		defer pruneTicker.Stop()
+		reminderTicker := time.NewTicker(time.Minute)
+		defer reminderTicker.Stop()
 		for {
 			select {
 			case <-pushCtx.Done():
@@ -185,9 +192,19 @@ func main() {
 				if err := pushService.ProcessPending(pushCtx); err != nil && pushCtx.Err() == nil {
 					log.Printf("push worker: %v", err)
 				}
+				if err := notificationService.ProcessPending(pushCtx); err != nil && pushCtx.Err() == nil {
+					log.Printf("notification worker: %v", err)
+				}
+			case <-reminderTicker.C:
+				if err := notificationService.ScheduleEventReminders(pushCtx); err != nil && pushCtx.Err() == nil {
+					log.Printf("notification scheduler: %v", err)
+				}
 			case <-pruneTicker.C:
 				if err := pushRepo.Prune(pushCtx); err != nil && pushCtx.Err() == nil {
 					log.Printf("push cleanup: %v", err)
+				}
+				if err := notificationService.Prune(pushCtx); err != nil && pushCtx.Err() == nil {
+					log.Printf("notification cleanup: %v", err)
 				}
 			}
 		}
@@ -216,19 +233,19 @@ func main() {
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo, recoveryRepo)
-	userService := user.NewUserService(userRepo)
+	userService := user.NewUserService(userRepo, notificationService)
 
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()
 	contentModerator := aiservice.NewGeminiContentModerator()
-	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider, contentModerator)
+	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider, contentModerator, notificationService)
 	searchService := search.NewSearchService(userRepo, eventRepo, communityRepo)
-	postService := coreServices.NewPostService(postRepo, communityRepo)
+	postService := coreServices.NewPostService(postRepo, communityRepo, notificationService)
 
 	chatService := coreServices.NewChatService(chatRepo, messageRepo)
-	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo)
+	transferService := coreServices.NewTransferService(transferRepo, chatRepo, messageRepo, notificationService)
 	surveyService := survey.NewSurveyService(surveyRepo)
 	communityService := community.NewCommunityService(communityRepo)
-	matchService := coreServices.NewMatchService(matchRepo)
+	matchService := coreServices.NewMatchService(matchRepo, notificationService)
 	danceService := coreServices.NewDanceService(danceRepo, eventRepo)
 
 	// Inyectar dependencias para KYC
@@ -246,7 +263,7 @@ func main() {
 	eventHandler := handlers.NewEventHandler(eventService, s3Service, userRepo)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
-	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
+	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo, notificationService)
 
 	chatHandler := handlers.NewChatHandler(chatService)
 	listenerURL := os.Getenv("CHAT_DATABASE_URL")
@@ -273,27 +290,28 @@ func main() {
 
 	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
-		PasswordRecovery: handlers.NewPasswordRecoveryHandler(recoveryService),
-		ValidateSession:  authService.ValidateSession,
-		AuthHandler:      authHandler,
-		UserHandler:      userHandler,
-		PostHandler:      postHandler,
-		EventHandler:     eventHandler,
-		CommunityHandler: communityHandler,
-		CrewHandler:      crewHandler,
-		KycHandler:       kycHandler,
-		SearchHandler:    searchHandler,
-		ChatHandler:      chatHandler,
-		ChatRealtime:     chatRealtime,
-		PushHandler:      handlers.NewPushHandler(pushService),
-		TransferHandler:  transferHandler,
-		SurveyHandler:    surveyHandler,
-		BadgeHandler:     badgeHandler,
-		BadgeMedia:       handlers.NewBadgeMediaHandler(badgeRepo, s3Service),
-		ReviewReminder:   handlers.NewReviewReminderHandler(coreServices.NewReviewReminderService(badgeRepo)),
-		AIHandler:        aiHandler,
-		MatchHandler:     matchHandler,
-		DanceHandler:     danceHandler,
+		PasswordRecovery:    handlers.NewPasswordRecoveryHandler(recoveryService),
+		ValidateSession:     authService.ValidateSession,
+		AuthHandler:         authHandler,
+		UserHandler:         userHandler,
+		PostHandler:         postHandler,
+		EventHandler:        eventHandler,
+		CommunityHandler:    communityHandler,
+		CrewHandler:         crewHandler,
+		KycHandler:          kycHandler,
+		SearchHandler:       searchHandler,
+		ChatHandler:         chatHandler,
+		ChatRealtime:        chatRealtime,
+		PushHandler:         handlers.NewPushHandler(pushService),
+		NotificationHandler: handlers.NewNotificationHandler(notificationService),
+		TransferHandler:     transferHandler,
+		SurveyHandler:       surveyHandler,
+		BadgeHandler:        badgeHandler,
+		BadgeMedia:          handlers.NewBadgeMediaHandler(badgeRepo, s3Service),
+		ReviewReminder:      handlers.NewReviewReminderHandler(coreServices.NewReviewReminderService(badgeRepo)),
+		AIHandler:           aiHandler,
+		MatchHandler:        matchHandler,
+		DanceHandler:        danceHandler,
 	})
 
 	// 6. Configuración y Arranque del Servidor HTTP

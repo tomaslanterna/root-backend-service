@@ -53,6 +53,23 @@ func notificationPreview(value, fallback string, limit int) string {
 }
 
 func (f *FCM) Send(ctx context.Context, job domain.PushJob) error {
+	if job.NotificationType != "" {
+		data := make(map[string]string, len(job.Data)+5)
+		for key, value := range job.Data {
+			data[key] = value
+		}
+		data["type"] = job.NotificationType
+		data["notification_id"] = job.NotificationID
+		data["recipient_id"] = job.UserID
+		data["title"] = notificationPreview(job.Title, "root", 120)
+		data["body"] = notificationPreview(job.Body, "Tenés una novedad.", 500)
+		payload := map[string]any{"message": map[string]any{
+			"token":   job.Token,
+			"data":    data,
+			"android": map[string]any{"priority": "HIGH", "ttl": "604800s"},
+		}}
+		return f.send(ctx, payload)
+	}
 	title := notificationPreview(job.SenderName, "Nuevo mensaje", 80)
 	bodyText := "Tenés un mensaje nuevo."
 	switch job.MessageType {
@@ -69,6 +86,10 @@ func (f *FCM) Send(ctx context.Context, job domain.PushJob) error {
 		"data":    map[string]string{"type": "chat.message", "chat_id": job.ChatID, "message_id": job.MessageID, "recipient_id": job.UserID, "title": title, "body": bodyText},
 		"android": map[string]any{"priority": "HIGH", "ttl": "86400s"},
 	}}
+	return f.send(ctx, payload)
+}
+
+func (f *FCM) send(ctx context.Context, payload map[string]any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err

@@ -25,6 +25,9 @@ func TestMultiPushSenderRouting(t *testing.T) {
 	if !dispatcher.Enabled() {
 		t.Fatal("expected dispatcher to be enabled")
 	}
+	if !dispatcher.SupportsPlatform("android") || !dispatcher.SupportsPlatform("ios") || dispatcher.SupportsPlatform("web") {
+		t.Fatal("expected only the configured native platforms to be supported")
+	}
 
 	androidJob := domain.PushJob{Token: "android-tok", Platform: "android"}
 	if err := dispatcher.Send(context.Background(), androidJob); err != nil {
@@ -53,6 +56,9 @@ func TestMultiPushSenderMissingProvider(t *testing.T) {
 	dispatcher := NewMultiPushSender(nil, nil)
 	if dispatcher.Enabled() {
 		t.Fatal("expected dispatcher without providers to be disabled")
+	}
+	if dispatcher.SupportsPlatform("android") || dispatcher.SupportsPlatform("ios") {
+		t.Fatal("expected missing providers to report their platforms as unavailable")
 	}
 
 	err := dispatcher.Send(context.Background(), domain.PushJob{Platform: "ios"})

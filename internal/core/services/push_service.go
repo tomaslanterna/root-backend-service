@@ -18,6 +18,15 @@ func NewPushService(repo ports.PushRepository, sender ports.PushSender) *PushSer
 	return &PushService{repo: repo, sender: sender}
 }
 func (s *PushService) Enabled() bool { return s.sender != nil }
+func (s *PushService) PlatformEnabled(platform string) bool {
+	if platform == "" {
+		return s.Enabled()
+	}
+	if sender, ok := s.sender.(interface{ SupportsPlatform(string) bool }); ok {
+		return sender.SupportsPlatform(platform)
+	}
+	return s.Enabled()
+}
 func (s *PushService) RegisterDevice(ctx context.Context, userID, id, token, platform string) error {
 	return s.repo.RegisterDevice(ctx, userID, id, token, platform)
 }

@@ -1,21 +1,37 @@
-# Android push de mensajes
+# Notificaciones de root
 
-El servidor usa FCM HTTP v1 y Application Default Credentials. Las claves privadas quedan exclusivamente en el servidor. No es necesario agregar Firebase a la base de datos ni usar Functions/Firestore.
+El servidor mantiene una bandeja de notificaciones por usuario y distribuye push por FCM en Android y APNs en iOS. Las claves privadas quedan exclusivamente en el servidor. No es necesario agregar Firebase a la base de datos ni usar Functions/Firestore.
 
 ```dotenv
 PUSH_ENABLED=true
 FIREBASE_PROJECT_ID=tu-proyecto
 GOOGLE_APPLICATION_CREDENTIALS=./secrets/firebase-service-account.json
+
+APNS_ENABLED=true
+APNS_KEY_PATH=./secrets/AuthKey_XXXXXXXXXX.p8
+APNS_KEY_ID=XXXXXXXXXX
+APNS_TEAM_ID=XXXXXXXXXX
+APNS_BUNDLE_ID=com.emnetwork.root
+APNS_PRODUCTION=false
 ```
 
-Por defecto está desactivado. Si se activa pero la configuración es inválida, el arranque falla explícitamente. El directorio `secrets/` está ignorado por Git. La cuenta debe pertenecer al proyecto del `google-services.json` Android o tener permisos FCM sobre ese proyecto. No enviar su JSON al frontend.
+Cada proveedor está desactivado por defecto. Si se activa pero su configuración es inválida, el arranque falla explícitamente. El directorio `secrets/` está ignorado por Git. La cuenta de Google debe pertenecer al proyecto del `google-services.json` Android o tener permisos FCM sobre ese proyecto. `APNS_PRODUCTION=false` usa el sandbox de Apple para builds de desarrollo; debe cambiarse a `true` para TestFlight y App Store. No enviar ninguna credencial al frontend.
 
 ## Contratos autenticados
 
-- `GET /v1/push/status` → `{ "enabled": true | false }`.
+- `GET /v1/push/status?platform=android|ios` → `{ "enabled": true | false }` para el proveedor solicitado.
 - `PUT /v1/push/devices/{installationUUID}` con `{ "token": "FCM_TOKEN", "platform": "android" }` → 204. Rechaza otros campos (incluyendo `userId`), plataformas, tokens inválidos y UUID inválido con 400; 503 si no está configurado; 500 si falla PostgreSQL.
 - `DELETE /v1/push/devices/{installationUUID}` → 204 idempotente. Solo elimina instalaciones del usuario del JWT; invalida todos los trabajos pendientes de esa instalación mediante cascade.
 - Todos requieren el JWT existente; sin autenticación → 401. No se expone un endpoint para enviar notificaciones arbitrarias ni para consultar tokens de otros usuarios.
+- `GET /v1/notifications?limit=30&offset=0` devuelve la bandeja y el total no leído.
+- `PATCH /v1/notifications/{notificationID}/read` y `POST /v1/notifications/read-all` actualizan lecturas únicamente para el usuario autenticado.
+- `GET /v1/users/me/notification-preferences` y `PUT /v1/users/me/notification-preferences` consultan y actualizan las categorías `messages`, `events`, `social`, `crews`, `communities`, `activity` y `account`.
+
+## Eventos y categorías
+
+La bandeja recibe mensajes, nuevos seguidores, likes y comentarios, anuncios de comunidades, nuevos crews, estados de identidad y transferencias. Un scheduler idempotente agrega recordatorios para eventos marcados como “Voy”: el mismo día, cerca del comienzo y luego de una asistencia registrada para solicitar una reseña. Quitar “Voy” elimina los recordatorios futuros de ese evento.
+
+Las preferencias se aplican al push y no borran el historial visible en la bandeja. Las rutas profundas se construyen en el cliente a partir de identificadores validados; el backend no acepta URLs arbitrarias de navegación.
 
 ## Persistencia y procesamiento
 
@@ -44,4 +60,4 @@ Alternativamente definir `PUSH_TEST_DATABASE_URL` con una base PostgreSQL de pru
 
 El formato FCM es de datos, sin el bloque `notification` automático: incluye `title` y `body` además de los IDs. Android lo renderiza con `RootMessagingService`, usando el glifo de Root como ícono pequeño y la identidad adaptativa de la aplicación para el ícono del sistema, sin una imagen grande adicional a la derecha. Android/MIUI controla la ubicación y el color del ícono. Esto permite el mismo aviso en primer y segundo plano sin descargar imágenes ni duplicar avisos del SDK. Actualizar la app Android antes de desplegar este formato en el backend; las apps anteriores no renderizan estos mensajes de datos.
 
-La guía completa de instalación por USB está en `ANDROID_PUSH.md` del frontend. iOS/APNs y Web Push no forman parte de esta primera integración.
+La guía completa de instalación por USB está en `ANDROID_PUSH.md` del frontend. Web Push todavía no forma parte de esta integración.

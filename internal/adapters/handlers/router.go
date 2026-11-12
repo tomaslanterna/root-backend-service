@@ -10,27 +10,28 @@ import (
 )
 
 type RouterConfig struct {
-	AuthHandler      *AuthHandler
-	UserHandler      *UserHandler
-	PostHandler      *PostHandler
-	EventHandler     *EventHandler
-	CommunityHandler *CommunityHandler
-	CrewHandler      *CrewHandler
-	KycHandler       *KycHandler
-	SearchHandler    *SearchHandler
-	ChatHandler      *ChatHandler
-	TransferHandler  *TransferHandler
-	SurveyHandler    *SurveyHandler
-	BadgeHandler     *BadgeHandler
-	BadgeMedia       *BadgeMediaHandler
-	ReviewReminder   *ReviewReminderHandler
-	AIHandler        *AIHandler
-	MatchHandler     *MatchHandler
-	DanceHandler     *DanceHandler
-	ChatRealtime     *ChatRealtime
-	PushHandler      *PushHandler
-	PasswordRecovery *PasswordRecoveryHandler
-	ValidateSession  ports.SessionValidator
+	AuthHandler         *AuthHandler
+	UserHandler         *UserHandler
+	PostHandler         *PostHandler
+	EventHandler        *EventHandler
+	CommunityHandler    *CommunityHandler
+	CrewHandler         *CrewHandler
+	KycHandler          *KycHandler
+	SearchHandler       *SearchHandler
+	ChatHandler         *ChatHandler
+	TransferHandler     *TransferHandler
+	SurveyHandler       *SurveyHandler
+	BadgeHandler        *BadgeHandler
+	BadgeMedia          *BadgeMediaHandler
+	ReviewReminder      *ReviewReminderHandler
+	AIHandler           *AIHandler
+	MatchHandler        *MatchHandler
+	DanceHandler        *DanceHandler
+	ChatRealtime        *ChatRealtime
+	PushHandler         *PushHandler
+	NotificationHandler *NotificationHandler
+	PasswordRecovery    *PasswordRecoveryHandler
+	ValidateSession     ports.SessionValidator
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -74,6 +75,16 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.With(AuthMiddleware).Get("/push/status", cfg.PushHandler.Status)
 			r.With(AuthMiddleware).Put("/push/devices/{id}", cfg.PushHandler.Register)
 			r.With(AuthMiddleware).Delete("/push/devices/{id}", cfg.PushHandler.Remove)
+		}
+		if cfg.NotificationHandler != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(AuthMiddleware)
+				r.Get("/notifications", cfg.NotificationHandler.List)
+				r.Patch("/notifications/{id}/read", cfg.NotificationHandler.MarkRead)
+				r.Post("/notifications/read-all", cfg.NotificationHandler.MarkAllRead)
+				r.Get("/users/me/notification-preferences", cfg.NotificationHandler.GetPreferences)
+				r.Put("/users/me/notification-preferences", cfg.NotificationHandler.UpdatePreferences)
+			})
 		}
 		if cfg.ChatRealtime != nil {
 			r.Get("/chats/ws", cfg.ChatRealtime.ServeHTTP)
