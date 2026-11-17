@@ -245,7 +245,7 @@ func main() {
 	postHandler := handlers.NewPostHandler(postService, s3Service)
 	eventHandler := handlers.NewEventHandler(eventService, s3Service, userRepo)
 	crewHandler := handlers.NewCrewHandler()
-	searchHandler := handlers.NewSearchHandler(searchService)
+	searchHandler := handlers.NewSearchHandler(searchService, s3Service)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
 
 	chatHandler := handlers.NewChatHandler(chatService)
