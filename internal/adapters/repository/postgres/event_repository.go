@@ -47,6 +47,9 @@ func (r *EventRepository) InitSchema(ctx context.Context) error {
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_source TEXT`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_url TEXT`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_info_fetched_at TIMESTAMP`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS city TEXT`,
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS source_url TEXT`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS events_source_url_uidx ON events (source_url) WHERE source_url IS NOT NULL`,
 		`DO $$
 		BEGIN
 			IF NOT EXISTS (
