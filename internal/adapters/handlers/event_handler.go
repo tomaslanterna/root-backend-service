@@ -612,12 +612,19 @@ func (h *EventHandler) UpdateEventImage(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *EventHandler) enrichEventImages(ctx context.Context, events []domain.Event) {
-	if h.s3Service == nil {
+	resolveEventImages(ctx, h.s3Service, events)
+}
+
+// resolveEventImages replaces the S3 keys stored for banners and artist avatars
+// with URLs a client can load. Every endpoint that returns events must apply it:
+// the web app only draws images whose URL starts with http.
+func resolveEventImages(ctx context.Context, storage s3.S3Service, events []domain.Event) {
+	if storage == nil {
 		return
 	}
 	for i := range events {
 		if events[i].CinematicBannerURL != "" && !strings.HasPrefix(events[i].CinematicBannerURL, "http") {
-			if url, err := h.s3Service.GenerateViewUrl(ctx, events[i].CinematicBannerURL, 7*24*time.Hour); err == nil {
+			if url, err := storage.GenerateViewUrl(ctx, events[i].CinematicBannerURL, 7*24*time.Hour); err == nil {
 				events[i].CinematicBannerURL = url
 			}
 		}
@@ -625,7 +632,7 @@ func (h *EventHandler) enrichEventImages(ctx context.Context, events []domain.Ev
 			if events[i].Artists[j].Artist != nil && events[i].Artists[j].Artist.AvatarURL != nil {
 				raw := *events[i].Artists[j].Artist.AvatarURL
 				if raw != "" && !strings.HasPrefix(raw, "http") {
-					if url, err := h.s3Service.GenerateViewUrl(ctx, raw, 7*24*time.Hour); err == nil {
+					if url, err := storage.GenerateViewUrl(ctx, raw, 7*24*time.Hour); err == nil {
 						events[i].Artists[j].Artist.AvatarURL = &url
 					}
 				}
