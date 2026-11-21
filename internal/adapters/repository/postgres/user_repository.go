@@ -102,6 +102,17 @@ func (r *userRepository) UpdateUser(ctx context.Context, user *domain.User) erro
 	return err
 }
 
+func (r *userRepository) UpdateAvatar(ctx context.Context, userID, avatar string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2`, avatar, userID)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err == nil && n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *userRepository) AddFollower(ctx context.Context, followerID, followedID string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

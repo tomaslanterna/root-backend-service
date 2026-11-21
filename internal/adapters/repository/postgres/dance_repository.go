@@ -195,13 +195,15 @@ func (r *danceRepository) CreatePermanentCrew(ctx context.Context, creatorID str
 	return r.GetCrewByID(ctx, crewID)
 }
 
+// JoinPermanentCrew mete al usuario en la crew dueña de ese código de invitación. Solo vale el código:
+// conocer el id de una crew no alcanza para entrar (el código se puede regenerar para anular un link).
 func (r *danceRepository) JoinPermanentCrew(ctx context.Context, userID, codeOrID string) (map[string]interface{}, error) {
 	if _, err := uuid.Parse(userID); err != nil {
 		return nil, errors.New("invalid user ID")
 	}
 	cleanCode := strings.TrimSpace(codeOrID)
 	if cleanCode == "" {
-		return nil, errors.New("invite code or crew ID is required")
+		return nil, errors.New("invite code is required")
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -215,7 +217,7 @@ func (r *danceRepository) JoinPermanentCrew(ctx context.Context, userID, codeOrI
 	err = tx.QueryRowContext(ctx, `
 		SELECT id::text, COALESCE(chat_room_id::text, '')
 		FROM squads
-		WHERE type = 'permanent' AND (UPPER(COALESCE(invite_code, '')) = UPPER($1) OR id::text = $1)
+		WHERE type = 'permanent' AND COALESCE(invite_code, '') <> '' AND UPPER(invite_code) = UPPER($1)
 		LIMIT 1
 	`, cleanCode).Scan(&squadID, &chatRoomID)
 	if err != nil {
@@ -688,6 +690,100 @@ func (r *danceRepository) GetCrewByID(ctx context.Context, squadID string) (map[
 		"members":            leaderboardAllTime,
 		"leaderboardAllTime": leaderboardAllTime,
 		"events":             events,
+	}, nil
+}
+
+func (r *danceRepository) IsCrewMember(ctx context.Context, squadID, userID string) (bool, error) {
+	if _, err := uuid.Parse(squadID); err != nil {
+		return false, nil
+	}
+	if _, err := uuid.Parse(userID); err != nil {
+		return false, nil
+	}
+	var member bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM squad_members WHERE squad_id = $1::uuid AND user_id = $2::uuid)`, squadID, userID).Scan(&member)
+	return member, err
+}
+
+// RegenerateCrewInviteCode crea un código nuevo para la crew; el anterior deja de funcionar al instante.
+// Puede hacerlo cualquier miembro. Devuelve sql.ErrNoRows si la crew no existe o el usuario no es miembro.
+func (r *danceRepository) RegenerateCrewInviteCode(ctx context.Context, squadID, userID string) (string, error) {
+	member, err := r.IsCrewMember(ctx, squadID, userID)
+	if err != nil {
+		return "", fmt.Errorf("checking crew membership: %w", err)
+	}
+	if !member {
+		return "", sql.ErrNoRows
+	}
+	for attempt := 0; attempt < 5; attempt++ {
+		code := strings.ToUpper(strings.ReplaceAll(uuid.NewString(), "-", "")[:10])
+		result, err := r.db.ExecContext(ctx, `
+			UPDATE squads s SET invite_code = $1
+			WHERE s.id = $2::uuid AND COALESCE(s.type, 'permanent') = 'permanent'
+			  AND NOT EXISTS (SELECT 1 FROM squads o WHERE UPPER(o.invite_code) = $1)
+		`, code, squadID)
+		if err != nil {
+			return "", fmt.Errorf("regenerating invite code: %w", err)
+		}
+		if n, _ := result.RowsAffected(); n == 1 {
+			return code, nil
+		}
+		// 0 filas: la crew no es permanente o el código ya existía; si la crew existe se reintenta con otro código.
+		var exists bool
+		if err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM squads WHERE id = $1::uuid AND COALESCE(type, 'permanent') = 'permanent')`, squadID).Scan(&exists); err != nil || !exists {
+			return "", sql.ErrNoRows
+		}
+	}
+	return "", errors.New("could not generate a unique invite code")
+}
+
+// GetCrewInvitePreview devuelve lo mínimo para mostrar "te invitaron a esta crew" antes de unirse:
+// nombre, cantidad de miembros y algunos miembros. No expone pasos, eventos ni el chat.
+func (r *danceRepository) GetCrewInvitePreview(ctx context.Context, inviteCode, viewerID string) (map[string]interface{}, error) {
+	code := strings.TrimSpace(inviteCode)
+	if code == "" {
+		return nil, sql.ErrNoRows
+	}
+	var id, name string
+	var memberCount int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT s.id::text, s.name, (SELECT COUNT(*) FROM squad_members sm WHERE sm.squad_id = s.id)
+		FROM squads s
+		WHERE COALESCE(s.type, 'permanent') = 'permanent' AND COALESCE(s.invite_code, '') <> '' AND UPPER(s.invite_code) = UPPER($1)
+		LIMIT 1
+	`, code).Scan(&id, &name, &memberCount)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT u.name, u.username, u.avatar_url
+		FROM squad_members sm JOIN users u ON u.id = sm.user_id
+		WHERE sm.squad_id = $1::uuid
+		ORDER BY sm.joined_at ASC
+		LIMIT 5
+	`, id)
+	if err != nil {
+		return nil, fmt.Errorf("loading crew members preview: %w", err)
+	}
+	defer rows.Close()
+	members := []map[string]interface{}{}
+	for rows.Next() {
+		var mName, mUsername string
+		var avatar *string
+		if err := rows.Scan(&mName, &mUsername, &avatar); err != nil {
+			return nil, err
+		}
+		members = append(members, map[string]interface{}{"name": mName, "username": mUsername, "avatarUrl": avatar})
+	}
+
+	already, _ := r.IsCrewMember(ctx, id, viewerID)
+	return map[string]interface{}{
+		"crewId":        id,
+		"name":          name,
+		"memberCount":   memberCount,
+		"members":       members,
+		"alreadyMember": already,
 	}, nil
 }
 

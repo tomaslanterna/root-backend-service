@@ -67,6 +67,18 @@ func (f *fakeDanceRepo) GetUserDanceSessions(ctx context.Context, userID string)
 	return nil, nil
 }
 
+func (f *fakeDanceRepo) IsCrewMember(ctx context.Context, squadID, userID string) (bool, error) {
+	return false, nil
+}
+
+func (f *fakeDanceRepo) RegenerateCrewInviteCode(ctx context.Context, squadID, userID string) (string, error) {
+	return "", nil
+}
+
+func (f *fakeDanceRepo) GetCrewInvitePreview(ctx context.Context, inviteCode, viewerID string) (map[string]interface{}, error) {
+	return nil, nil
+}
+
 func (f *fakeDanceRepo) GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error) {
 	return map[string]interface{}{"id": squadID}, nil
 }
