@@ -44,6 +44,9 @@ func (r *danceRepository) InitSchema(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS squad_events_squad_idx ON squad_events (squad_id)`,
 		`CREATE INDEX IF NOT EXISTS squads_type_created_idx ON squads (type, created_at DESC)`,
+		// Visibilidad: las crews que ya existían quedan privadas (se entraba solo con invitación).
+		`ALTER TABLE squads ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT false`,
+		`CREATE INDEX IF NOT EXISTS squads_public_idx ON squads (is_public) WHERE type = 'permanent'`,
 		`UPDATE dance_sessions SET is_validated = true WHERE is_validated = false AND steps_count > 0`,
 	}
 
@@ -121,9 +124,9 @@ func (r *danceRepository) CreatePermanentCrew(ctx context.Context, creatorID str
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO squads (id, event_id, name, chat_room_id, status, created_at, expires_at, type, invite_code)
-		VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 'active', $5, $6, 'permanent', $7)
-	`, crewID, primaryEventID, name, chatID, now, expiresAt, inviteCode)
+		INSERT INTO squads (id, event_id, name, chat_room_id, status, created_at, expires_at, type, invite_code, is_public)
+		VALUES ($1::uuid, $2::uuid, $3, $4::uuid, 'active', $5, $6, 'permanent', $7, $8)
+	`, crewID, primaryEventID, name, chatID, now, expiresAt, inviteCode, req.IsPublic)
 	if err != nil {
 		return nil, fmt.Errorf("inserting permanent crew: %w", err)
 	}
@@ -249,6 +252,88 @@ func (r *danceRepository) JoinPermanentCrew(ctx context.Context, userID, codeOrI
 	}
 
 	return r.GetCrewByID(ctx, squadID)
+}
+
+// JoinPublicCrew suma al usuario a una crew pública (y a su chat) sin código. Si la crew no existe o es
+// privada devuelve sql.ErrNoRows: a una privada solo se entra con el link de invitación.
+func (r *danceRepository) JoinPublicCrew(ctx context.Context, userID, squadID string) (map[string]interface{}, error) {
+	if _, err := uuid.Parse(userID); err != nil {
+		return nil, errors.New("invalid user ID")
+	}
+	if _, err := uuid.Parse(squadID); err != nil {
+		return nil, sql.ErrNoRows
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin join public crew tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var chatRoomID sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT COALESCE(chat_room_id::text, '')
+		FROM squads
+		WHERE id = $1::uuid AND type = 'permanent' AND is_public = true
+	`, squadID).Scan(&chatRoomID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
+		}
+		return nil, fmt.Errorf("finding public crew: %w", err)
+	}
+
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO squad_members (squad_id, user_id, role, has_ticket, joined_at)
+		VALUES ($1::uuid, $2::uuid, 'member', false, $3)
+		ON CONFLICT (squad_id, user_id) DO NOTHING
+	`, squadID, userID, now); err != nil {
+		return nil, fmt.Errorf("adding member to public crew: %w", err)
+	}
+	if chatRoomID.Valid && chatRoomID.String != "" {
+		_, _ = tx.ExecContext(ctx, `
+			INSERT INTO chat_participants (chat_id, user_id, joined_at)
+			VALUES ($1::uuid, $2::uuid, $3)
+			ON CONFLICT DO NOTHING
+		`, chatRoomID.String, userID, now)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing join public crew tx: %w", err)
+	}
+	return r.GetCrewByID(ctx, squadID)
+}
+
+// SetCrewVisibility cambia la crew entre pública y privada. Solo el host (quien la creó).
+func (r *danceRepository) SetCrewVisibility(ctx context.Context, squadID, userID string, isPublic bool) error {
+	if _, err := uuid.Parse(squadID); err != nil {
+		return sql.ErrNoRows
+	}
+	if _, err := uuid.Parse(userID); err != nil {
+		return ports.ErrNotCrewHost
+	}
+	var exists, isHost bool
+	err := r.db.QueryRowContext(ctx, `
+		SELECT true, EXISTS(
+			SELECT 1 FROM squad_members m WHERE m.squad_id = s.id AND m.user_id = $2::uuid AND m.role = 'host'
+		)
+		FROM squads s
+		WHERE s.id = $1::uuid AND s.type = 'permanent'
+	`, squadID, userID).Scan(&exists, &isHost)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sql.ErrNoRows
+		}
+		return fmt.Errorf("checking crew host: %w", err)
+	}
+	if !isHost {
+		return ports.ErrNotCrewHost
+	}
+	if _, err := r.db.ExecContext(ctx, `UPDATE squads SET is_public = $2 WHERE id = $1::uuid`, squadID, isPublic); err != nil {
+		return fmt.Errorf("updating crew visibility: %w", err)
+	}
+	return nil
 }
 
 func (r *danceRepository) AddCrewMembers(ctx context.Context, squadID string, memberIDs []string, actorUserID string) (map[string]interface{}, error) {
@@ -460,7 +545,7 @@ func (r *danceRepository) GetUserCrews(ctx context.Context, userID string) ([]ma
 			GROUP BY squad_id
 		)
 		SELECT s.id, s.name, COALESCE(s.type, 'permanent'), s.invite_code, s.status,
-		       COALESCE(s.chat_room_id::text, ''),
+		       COALESCE(s.chat_room_id::text, ''), COALESCE(s.is_public, false),
 		       (SELECT COUNT(*) FROM squad_members WHERE squad_id = s.id) as member_count,
 		       COALESCE(ct.top_steps, 0) as top_steps,
 		       COALESCE(ct.crew_total_steps, 0) as total_steps,
@@ -496,9 +581,10 @@ func (r *danceRepository) GetUserCrews(ctx context.Context, userID string) ([]ma
 	for rows.Next() {
 		var id, name, crewType, status, chatRoomID string
 		var inviteCode *string
+		var isPublic bool
 		var memberCount, topSteps, totalSteps, userRank int
 		var membersBytes []byte
-		if err := rows.Scan(&id, &name, &crewType, &inviteCode, &status, &chatRoomID, &memberCount, &topSteps, &totalSteps, &userRank, &membersBytes); err != nil {
+		if err := rows.Scan(&id, &name, &crewType, &inviteCode, &status, &chatRoomID, &isPublic, &memberCount, &topSteps, &totalSteps, &userRank, &membersBytes); err != nil {
 			return nil, err
 		}
 		var members []map[string]interface{}
@@ -511,6 +597,7 @@ func (r *danceRepository) GetUserCrews(ctx context.Context, userID string) ([]ma
 			"inviteCode":  inviteCode,
 			"status":      status,
 			"chatRoomId":  chatRoomID,
+			"isPublic":    isPublic,
 			"memberCount": memberCount,
 			"topSteps":    topSteps,
 			"totalSteps":  totalSteps,
@@ -537,7 +624,7 @@ func (r *danceRepository) GetAllCrews(ctx context.Context) ([]map[string]interfa
 			GROUP BY squad_id
 		)
 		SELECT s.id, s.name, COALESCE(s.type, 'permanent'), s.invite_code, s.status,
-		       COALESCE(s.chat_room_id::text, ''),
+		       COALESCE(s.chat_room_id::text, ''), COALESCE(s.is_public, false),
 		       (SELECT COUNT(*) FROM squad_members WHERE squad_id = s.id) as member_count,
 		       COALESCE(ct.top_steps, 0) as top_steps,
 		       COALESCE(ct.crew_total_steps, 0) as total_steps,
@@ -558,7 +645,7 @@ func (r *danceRepository) GetAllCrews(ctx context.Context) ([]map[string]interfa
 		       ), '[]'::jsonb) as members_json
 		FROM squads s
 		LEFT JOIN crew_totals ct ON ct.squad_id = s.id
-		WHERE s.type = 'permanent'
+		WHERE s.type = 'permanent' AND s.is_public = true
 		ORDER BY COALESCE(ct.crew_total_steps, 0) DESC, s.created_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query)
@@ -571,9 +658,10 @@ func (r *danceRepository) GetAllCrews(ctx context.Context) ([]map[string]interfa
 	for rows.Next() {
 		var id, name, crewType, status, chatRoomID string
 		var inviteCode *string
+		var isPublic bool
 		var memberCount, topSteps, totalSteps, userRank int
 		var membersBytes []byte
-		if err := rows.Scan(&id, &name, &crewType, &inviteCode, &status, &chatRoomID, &memberCount, &topSteps, &totalSteps, &userRank, &membersBytes); err != nil {
+		if err := rows.Scan(&id, &name, &crewType, &inviteCode, &status, &chatRoomID, &isPublic, &memberCount, &topSteps, &totalSteps, &userRank, &membersBytes); err != nil {
 			return nil, err
 		}
 		var members []map[string]interface{}
@@ -586,6 +674,7 @@ func (r *danceRepository) GetAllCrews(ctx context.Context) ([]map[string]interfa
 			"inviteCode":  inviteCode,
 			"status":      status,
 			"chatRoomId":  chatRoomID,
+			"isPublic":    isPublic,
 			"memberCount": memberCount,
 			"topSteps":    topSteps,
 			"totalSteps":  totalSteps,
@@ -640,17 +729,18 @@ func (r *danceRepository) GetCrewByID(ctx context.Context, squadID string) (map[
 
 	query := `
 		SELECT s.id, s.name, COALESCE(s.type, 'permanent'), s.invite_code, s.status,
-		       COALESCE(s.chat_room_id::text, ''),
+		       COALESCE(s.chat_room_id::text, ''), COALESCE(s.is_public, false),
 		       COUNT(sm.user_id) as member_count
 		FROM squads s
 		LEFT JOIN squad_members sm ON sm.squad_id = s.id
 		WHERE s.id = $1::uuid
-		GROUP BY s.id, s.name, s.type, s.invite_code, s.status, s.chat_room_id
+		GROUP BY s.id, s.name, s.type, s.invite_code, s.status, s.chat_room_id, s.is_public
 	`
 	var id, name, crewType, status, chatRoomID string
 	var inviteCode *string
+	var isPublic bool
 	var memberCount int
-	err := r.db.QueryRowContext(ctx, query, squadID).Scan(&id, &name, &crewType, &inviteCode, &status, &chatRoomID, &memberCount)
+	err := r.db.QueryRowContext(ctx, query, squadID).Scan(&id, &name, &crewType, &inviteCode, &status, &chatRoomID, &isPublic, &memberCount)
 	if err != nil {
 		return nil, err
 	}
@@ -684,6 +774,7 @@ func (r *danceRepository) GetCrewByID(ctx context.Context, squadID string) (map[
 		"invite_code":        inviteCode,
 		"status":             status,
 		"chatRoomId":         chatRoomID,
+		"isPublic":           isPublic,
 		"memberCount":        memberCount,
 		"topSteps":           topSteps,
 		"totalSteps":         totalSteps,

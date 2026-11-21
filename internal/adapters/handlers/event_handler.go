@@ -171,6 +171,12 @@ func (h *EventHandler) GetFeaturedEvents(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error obteniendo eventos destacados")
 		return
 	}
+	// Con sesión: primero los que coinciden con sus intereses musicales. Si no se pueden leer, orden normal.
+	if userID, _ := r.Context().Value(UserIDKey).(string); userID != "" && h.userRepo != nil {
+		if interests, _, err := h.userRepo.GetInterests(r.Context(), userID); err == nil {
+			events = domain.RankByInterests(events, interests)
+		}
+	}
 	
 	h.enrichEventImages(r.Context(), events)
 	

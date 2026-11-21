@@ -93,6 +93,16 @@ func (s *danceService) JoinPermanentCrew(ctx context.Context, userID, codeOrID s
 	return s.danceRepo.JoinPermanentCrew(ctx, userID, codeOrID)
 }
 
+// JoinPublicCrew suma al usuario a una crew pública, sin código de invitación.
+func (s *danceService) JoinPublicCrew(ctx context.Context, userID, squadID string) (map[string]interface{}, error) {
+	return s.danceRepo.JoinPublicCrew(ctx, userID, squadID)
+}
+
+// SetCrewVisibility cambia una crew entre pública y privada. Solo quien la creó.
+func (s *danceService) SetCrewVisibility(ctx context.Context, squadID, userID string, isPublic bool) error {
+	return s.danceRepo.SetCrewVisibility(ctx, squadID, userID, isPublic)
+}
+
 func (s *danceService) IsCrewMember(ctx context.Context, squadID, userID string) (bool, error) {
 	return s.danceRepo.IsCrewMember(ctx, squadID, userID)
 }

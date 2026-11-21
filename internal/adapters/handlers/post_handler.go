@@ -92,6 +92,36 @@ func (h *PostHandler) GetPosts(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, response)
 }
 
+// GetUserPosts: GET /users/{username}/posts (detrás de RequireProfileAccess, que valida perfiles privados).
+func (h *PostHandler) GetUserPosts(w http.ResponseWriter, r *http.Request) {
+	limit, offset, err := parsePagination(r, 30)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	posts, err := h.postService.GetUserPosts(r.Context(), ProfileUserID(r), limit, offset)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "No se pudieron cargar los posts")
+		return
+	}
+	for i := range posts {
+		if h.s3Service == nil {
+			break
+		}
+		if posts[i].HeaderImageURL != nil && *posts[i].HeaderImageURL != "" && !strings.HasPrefix(*posts[i].HeaderImageURL, "http") {
+			if url, err := h.s3Service.GenerateViewUrl(r.Context(), *posts[i].HeaderImageURL, 7*24*time.Hour); err == nil {
+				posts[i].HeaderImageURL = &url
+			}
+		}
+		if posts[i].AuthorAvatar != "" && !strings.HasPrefix(posts[i].AuthorAvatar, "http") {
+			if url, err := h.s3Service.GenerateViewUrl(r.Context(), posts[i].AuthorAvatar, 7*24*time.Hour); err == nil {
+				posts[i].AuthorAvatar = url
+			}
+		}
+	}
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{"data": posts})
+}
+
 func (h *PostHandler) GetPostByID(w http.ResponseWriter, r *http.Request) {
 	postID := chi.URLParam(r, "id")
 	if postID == "" {

@@ -39,6 +39,14 @@ func (f *fakeDanceRepo) JoinPermanentCrew(ctx context.Context, userID, codeOrID 
 	return map[string]interface{}{"id": "crew-1", "joinedUser": userID, "code": codeOrID}, nil
 }
 
+func (f *fakeDanceRepo) JoinPublicCrew(ctx context.Context, userID, squadID string) (map[string]interface{}, error) {
+	return map[string]interface{}{"id": squadID, "joinedUser": userID}, nil
+}
+
+func (f *fakeDanceRepo) SetCrewVisibility(ctx context.Context, squadID, userID string, isPublic bool) error {
+	return nil
+}
+
 func (f *fakeDanceRepo) AddCrewMembers(ctx context.Context, squadID string, memberIDs []string, actorUserID string) (map[string]interface{}, error) {
 	return map[string]interface{}{"id": squadID, "member_ids": memberIDs}, nil
 }

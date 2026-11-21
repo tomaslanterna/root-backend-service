@@ -1,6 +1,25 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrUserNotFound: no existe un usuario con ese username o ID.
+var ErrUserNotFound = errors.New("user not found")
+
+// ErrPrivateProfile: el perfil es privado y quien lo mira no lo sigue.
+var ErrPrivateProfile = errors.New("private profile")
+
+// ErrFollowRequestNotFound: no hay una solicitud pendiente de esa persona.
+var ErrFollowRequestNotFound = errors.New("follow request not found")
+
+// Estados del botón Seguir.
+const (
+	FollowStatusNone      = "none"
+	FollowStatusRequested = "requested"
+	FollowStatusFollowing = "following"
+)
 
 type User struct {
 	ID            string    `json:"id"`
@@ -16,6 +35,19 @@ type User struct {
 	Following     []string  `json:"following"`
 	IsKycVerified bool      `json:"isKycVerified"`
 	Country       *string   `json:"country"`
+	// IsPrivate: solo quienes lo siguen ven sus posts, insignias, eventos y listas; seguir requiere aceptar.
+	IsPrivate     bool      `json:"isPrivate"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+// FollowListUser es una fila de la lista de seguidores o seguidos de un perfil.
+// IsFollowing indica si quien mira la lista ya sigue a esa persona (false sin sesión).
+type FollowListUser struct {
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Username      string  `json:"username"`
+	AvatarURL     *string `json:"avatarUrl"`
+	IsKycVerified bool    `json:"isKycVerified"`
+	IsFollowing   bool    `json:"isFollowing"`
 }

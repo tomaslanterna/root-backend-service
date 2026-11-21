@@ -92,10 +92,15 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 		r.Get("/users/check-username", cfg.UserHandler.CheckUsername)
 		r.With(OptionalAuthMiddleware).Get("/users/{username}", cfg.UserHandler.GetUser)
-		r.With(OptionalAuthMiddleware).Get("/users/{username}/communities", cfg.CommunityHandler.GetUserCommunities)
-		r.With(OptionalAuthMiddleware).Get("/users/{username}/events", cfg.EventHandler.GetUserEvents)
+		// Contenido del perfil: si es privado, solo lo ven su dueño y sus seguidores.
+		profileContent := r.With(OptionalAuthMiddleware, cfg.UserHandler.RequireProfileAccess)
+		profileContent.Get("/users/{username}/communities", cfg.CommunityHandler.GetUserCommunities)
+		profileContent.Get("/users/{username}/events", cfg.EventHandler.GetUserEvents)
+		profileContent.Get("/users/{username}/followers", cfg.UserHandler.ListFollowers)
+		profileContent.Get("/users/{username}/following", cfg.UserHandler.ListFollowing)
+		profileContent.Get("/users/{username}/posts", cfg.PostHandler.GetUserPosts)
 		if cfg.BadgeHandler != nil {
-			r.With(OptionalAuthMiddleware).Get("/users/{username}/badges", cfg.BadgeHandler.List)
+			profileContent.Get("/users/{username}/badges", cfg.BadgeHandler.List)
 			r.With(AuthMiddleware).Get("/events/{id}/badge", cfg.BadgeHandler.Get)
 		}
 
@@ -104,6 +109,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Post("/users/{username}/follow", cfg.UserHandler.FollowUser)
 			r.Delete("/users/{username}/follow", cfg.UserHandler.UnfollowUser)
 			r.Get("/users/me", cfg.UserHandler.GetMe)
+			r.Get("/users/me/interests", cfg.UserHandler.GetMyInterests)
+			r.Put("/users/me/interests", cfg.UserHandler.UpdateMyInterests)
+			r.Put("/users/me/privacy", cfg.UserHandler.UpdatePrivacy)
+			r.Get("/users/me/follow-requests", cfg.UserHandler.ListFollowRequests)
+			r.Post("/users/me/follow-requests/{username}/accept", cfg.UserHandler.AcceptFollowRequest)
+			r.Delete("/users/me/follow-requests/{username}", cfg.UserHandler.RejectFollowRequest)
 			r.Put("/users/me", cfg.UserHandler.UpdateMe)
 			r.Post("/users/me/avatar", cfg.UserHandler.UpdateAvatar)
 			r.Get("/users/me/communities", cfg.CommunityHandler.GetMyCommunities)
@@ -128,7 +139,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// Importación masiva de eventos
 		r.Post("/events/bulk-csv", cfg.EventHandler.BulkCreateEventsCSV)
 		r.With(OptionalAuthMiddleware).Get("/events", cfg.EventHandler.GetEvents)
-		r.Get("/events/featured", cfg.EventHandler.GetFeaturedEvents)
+		// Sesión opcional: con sesión, los destacados vienen ordenados según los intereses musicales.
+		r.With(OptionalAuthMiddleware).Get("/events/featured", cfg.EventHandler.GetFeaturedEvents)
 		r.With(AuthMiddleware).Get("/events/live-status", cfg.EventHandler.GetLiveEventStatus)
 		r.With(OptionalAuthMiddleware).Get("/events/{id}", cfg.EventHandler.GetEventByID)
 		r.With(AuthMiddleware).Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
@@ -230,6 +242,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.With(OptionalAuthMiddleware).Get("/invite/{code}", cfg.DanceHandler.PreviewCrewInvite)
 			r.With(AuthMiddleware).Post("/{id}/invite-code/regenerate", cfg.DanceHandler.RegenerateInviteCode)
 			r.With(AuthMiddleware).Post("/{id}/members", cfg.DanceHandler.AddCrewMembers)
+			r.With(AuthMiddleware).Post("/{id}/join", cfg.DanceHandler.JoinPublicCrew)
+			r.With(AuthMiddleware).Patch("/{id}", cfg.DanceHandler.UpdateCrewVisibility)
 			r.With(OptionalAuthMiddleware).Get("/{id}", cfg.DanceHandler.GetCrewByID)
 			r.With(OptionalAuthMiddleware).Get("/{id}/rankings", cfg.DanceHandler.GetCrewLeaderboards)
 			r.With(OptionalAuthMiddleware).Get("/{id}/events", cfg.DanceHandler.GetCrewEvents)

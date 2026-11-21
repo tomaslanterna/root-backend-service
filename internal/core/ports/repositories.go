@@ -12,9 +12,18 @@ type UserRepository interface {
 	CreateUser(ctx context.Context, user *domain.User) error
 	AddFollower(ctx context.Context, followerID, followedID string) error
 	RemoveFollower(ctx context.Context, followerID, followedID string) error
+	ListFollowers(ctx context.Context, userID, viewerID string, limit, offset int) ([]domain.FollowListUser, int, error)
+	ListFollowing(ctx context.Context, userID, viewerID string, limit, offset int) ([]domain.FollowListUser, int, error)
 	SearchUsers(ctx context.Context, query string, currentUserID string) ([]domain.User, error)
 	UpdateUser(ctx context.Context, user *domain.User) error
 	UpdateAvatar(ctx context.Context, userID, avatar string) error
+	GetInterests(ctx context.Context, userID string) (genres []string, answered bool, err error)
+	SetInterests(ctx context.Context, userID string, genres []string) error
+	SetPrivate(ctx context.Context, userID string, isPrivate bool) error
+	CreateFollowRequest(ctx context.Context, requesterID, targetID string) error
+	DeleteFollowRequest(ctx context.Context, requesterID, targetID string) (bool, error)
+	HasFollowRequest(ctx context.Context, requesterID, targetID string) (bool, error)
+	ListFollowRequests(ctx context.Context, targetID string) ([]domain.FollowListUser, error)
 	UpdateUserKycStatus(ctx context.Context, userID string, isVerified bool, country string) error
 }
 
@@ -77,6 +86,7 @@ type PostRepository interface {
 	GetGlobalPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
 	GetFeaturedPosts(ctx context.Context, limit, offset int) ([]domain.Post, error)
 	GetFollowingPosts(ctx context.Context, userID string, limit, offset int) ([]domain.Post, error)
+	GetUserPosts(ctx context.Context, authorID string, limit, offset int) ([]domain.Post, error)
 	GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error)
 	GetCommunityPosts(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error)
 	CreatePost(ctx context.Context, post *domain.Post) error
@@ -119,6 +129,8 @@ type DanceRepository interface {
 	SaveDanceSession(ctx context.Context, session *domain.DanceSession) error
 	CreatePermanentCrew(ctx context.Context, creatorID string, req CreateCrewRequest) (map[string]interface{}, error)
 	JoinPermanentCrew(ctx context.Context, userID, codeOrID string) (map[string]interface{}, error)
+	JoinPublicCrew(ctx context.Context, userID, squadID string) (map[string]interface{}, error)
+	SetCrewVisibility(ctx context.Context, squadID, userID string, isPublic bool) error
 	AddCrewMembers(ctx context.Context, squadID string, memberIDs []string, actorUserID string) (map[string]interface{}, error)
 	AddCrewEvent(ctx context.Context, squadID, eventID, userID string) error
 	GetCrewLeaderboardAllTime(ctx context.Context, squadID string) ([]map[string]interface{}, error)

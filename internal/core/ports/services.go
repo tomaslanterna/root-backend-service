@@ -1,6 +1,7 @@
 package ports
 
 import (
+	"errors"
 	"context"
 	"io"
 	"root-backend-service/internal/core/domain"
@@ -15,10 +16,21 @@ type AuthService interface {
 
 type UserService interface {
 	GetUserByUsername(ctx context.Context, targetUsername string, currentUserID string) (*domain.User, bool, error)
-	FollowUser(ctx context.Context, currentUserID, targetUsername string) error
+	// FollowUser sigue al instante o, si el perfil es privado, manda una solicitud. Devuelve el estado final.
+	FollowUser(ctx context.Context, currentUserID, targetUsername string) (string, error)
+	FollowStatus(ctx context.Context, viewerID string, target *domain.User) (string, error)
+	CanViewProfile(ctx context.Context, viewerID, targetUsername string) (*domain.User, bool, error)
+	SetPrivacy(ctx context.Context, userID string, isPrivate bool) error
+	ListFollowRequests(ctx context.Context, userID string) ([]domain.FollowListUser, error)
+	AcceptFollowRequest(ctx context.Context, userID, requesterUsername string) error
+	RejectFollowRequest(ctx context.Context, userID, requesterUsername string) error
 	UnfollowUser(ctx context.Context, currentUserID, targetUsername string) error
-	UpdateUser(ctx context.Context, userID, newUsername, dob, documentID, country string) (*domain.User, error)
+	GetFollowers(ctx context.Context, targetUsername, viewerID string, limit, offset int) ([]domain.FollowListUser, int, error)
+	GetFollowing(ctx context.Context, targetUsername, viewerID string, limit, offset int) ([]domain.FollowListUser, int, error)
+	UpdateUser(ctx context.Context, userID, name, newUsername, dob, documentID, country string) (*domain.User, error)
 	UpdateAvatar(ctx context.Context, userID, avatar string) (*domain.User, error)
+	GetInterests(ctx context.Context, userID string) (genres []string, answered bool, err error)
+	SetInterests(ctx context.Context, userID string, genres []string) ([]string, error)
 }
 
 type SearchService interface {
@@ -68,6 +80,7 @@ type FeedData struct {
 type PostService interface {
 	GetFeeds(ctx context.Context, userID string, includeFeeds []string, pagination map[string]int) (map[string]FeedData, error)
 	GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error)
+	GetUserPosts(ctx context.Context, authorID string, limit, offset int) ([]domain.Post, error)
 	CreatePost(ctx context.Context, post *domain.Post) error
 	GetCommunityAnnouncements(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error)
 	CreateCommunityAnnouncement(ctx context.Context, communityID, authorID string, post *domain.Post) (*domain.Post, error)
@@ -109,8 +122,14 @@ type SyncDanceRequest struct {
 	Lng        float64   `json:"lng"`
 }
 
+// ErrNotCrewHost: la acción es solo para quien creó la crew.
+var ErrNotCrewHost = errors.New("only the crew host can do this")
+
 type CreateCrewRequest struct {
 	Name      string   `json:"name"`
+	// IsPublic: las públicas aparecen en el listado de Crews y cualquiera se une sin código;
+	// las privadas solo con el link de invitación.
+	IsPublic  bool     `json:"is_public"`
 	Type      string   `json:"type"`
 	MemberIDs []string `json:"member_ids"`
 	EventID   *string  `json:"event_id,omitempty"`
@@ -121,6 +140,8 @@ type DanceService interface {
 	SyncSteps(ctx context.Context, userID string, req SyncDanceRequest) (*domain.DanceSession, error)
 	CreatePermanentCrew(ctx context.Context, creatorID string, req CreateCrewRequest) (map[string]interface{}, error)
 	JoinPermanentCrew(ctx context.Context, userID, codeOrID string) (map[string]interface{}, error)
+	JoinPublicCrew(ctx context.Context, userID, squadID string) (map[string]interface{}, error)
+	SetCrewVisibility(ctx context.Context, squadID, userID string, isPublic bool) error
 	AddCrewMembers(ctx context.Context, squadID string, memberIDs []string, actorUserID string) (map[string]interface{}, error)
 	AddCrewEvent(ctx context.Context, squadID, eventID, userID string) error
 	GetCrewLeaderboards(ctx context.Context, squadID string, eventID *string) (map[string]interface{}, error)

@@ -84,6 +84,8 @@ func (h *DanceHandler) CreatePermanentCrew(w http.ResponseWriter, r *http.Reques
 	var body struct {
 		Name      string   `json:"name"`
 		Type      string   `json:"type"`
+		IsPublic  bool     `json:"isPublic"`
+		IsPublic2 bool     `json:"is_public"`
 		MemberIDs []string `json:"member_ids"`
 		MemberIds []string `json:"memberIds"`
 		EventID   *string  `json:"event_id"`
@@ -105,6 +107,7 @@ func (h *DanceHandler) CreatePermanentCrew(w http.ResponseWriter, r *http.Reques
 
 	crew, err := h.danceService.CreatePermanentCrew(r.Context(), userID, ports.CreateCrewRequest{
 		Name:      body.Name,
+		IsPublic:  body.IsPublic || body.IsPublic2,
 		Type:      body.Type,
 		MemberIDs: memberIDs,
 		EventID:   eventID,
@@ -318,6 +321,55 @@ func (h *DanceHandler) GetMyDanceSessions(w http.ResponseWriter, r *http.Request
 		sessions = []map[string]interface{}{}
 	}
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{"data": sessions})
+}
+
+// JoinPublicCrew: POST /crews/{id}/join. Unirse a una crew pública sin código.
+// Una privada responde 404: a esas solo se entra con el link de invitación.
+func (h *DanceHandler) JoinPublicCrew(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+	squadID := strings.TrimSpace(chi.URLParam(r, "id"))
+	crew, err := h.danceService.JoinPublicCrew(r.Context(), userID, squadID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondWithError(w, http.StatusNotFound, "Crew not found")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "Failed to join crew")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{"success": true, "crewId": crew["id"], "crew": crew})
+}
+
+// UpdateCrewVisibility: PATCH /crews/{id} con {"isPublic": bool}. Solo quien creó la crew.
+func (h *DanceHandler) UpdateCrewVisibility(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+	var body struct {
+		IsPublic *bool `json:"isPublic"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IsPublic == nil {
+		respondWithError(w, http.StatusBadRequest, "isPublic is required")
+		return
+	}
+	squadID := strings.TrimSpace(chi.URLParam(r, "id"))
+	err := h.danceService.SetCrewVisibility(r.Context(), squadID, userID, *body.IsPublic)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		respondWithError(w, http.StatusNotFound, "Crew not found")
+	case errors.Is(err, ports.ErrNotCrewHost):
+		respondWithError(w, http.StatusForbidden, "Solo quien creó la crew puede cambiar su visibilidad")
+	case err != nil:
+		respondWithError(w, http.StatusInternalServerError, "No se pudo cambiar la visibilidad")
+	default:
+		respondWithJSON(w, http.StatusOK, map[string]interface{}{"id": squadID, "isPublic": *body.IsPublic})
+	}
 }
 
 // hideInviteCode saca el código de invitación de una crew: solo lo ven los miembros.

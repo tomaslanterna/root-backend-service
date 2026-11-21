@@ -21,6 +21,11 @@ func NewPostService(repo ports.PostRepository, communityRepo ports.CommunityRepo
 	}
 }
 
+// GetUserPosts lista los posts de un perfil (el acceso a perfiles privados se controla antes).
+func (s *postService) GetUserPosts(ctx context.Context, authorID string, limit, offset int) ([]domain.Post, error) {
+	return s.postRepo.GetUserPosts(ctx, authorID, limit, offset)
+}
+
 func (s *postService) GetFeeds(ctx context.Context, userID string, includeFeeds []string, pagination map[string]int) (map[string]ports.FeedData, error) {
 	result := make(map[string]ports.FeedData)
 	var mu sync.Mutex
