@@ -20,6 +20,7 @@ type PublicProfile struct {
 	Role           string   `json:"role"`
 	AvatarURL      *string  `json:"avatarUrl"`
 	IsKycVerified  bool     `json:"isKycVerified"`
+	IsPrivate      bool     `json:"isPrivate"`
 	Followers      []string `json:"followers"`
 	Following      []string `json:"following"`
 	FollowersCount int      `json:"followersCount"`
@@ -59,6 +60,7 @@ func (u User) PublicProfile() PublicProfile {
 		Role:           u.Role,
 		AvatarURL:      u.AvatarURL,
 		IsKycVerified:  u.IsKycVerified,
+		IsPrivate:      u.IsPrivate,
 		Followers:      followers,
 		Following:      following,
 		FollowersCount: len(followers),

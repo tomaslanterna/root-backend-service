@@ -62,6 +62,9 @@ func (s *userService) FollowUser(ctx context.Context, currentUserID, targetUsern
 	if err := s.userRepo.AddFollower(ctx, currentUserID, targetUser.ID); err != nil {
 		return "", err
 	}
+	if s.notifications != nil {
+		_ = s.notifications.NotifyFollow(ctx, currentUserID, targetUser.ID)
+	}
 	return domain.FollowStatusFollowing, nil
 }
 
@@ -164,11 +167,6 @@ func (s *userService) RejectFollowRequest(ctx context.Context, userID, requester
 	}
 	if !existed {
 		return domain.ErrFollowRequestNotFound
-	if err := s.userRepo.AddFollower(ctx, currentUserID, targetUser.ID); err != nil {
-		return err
-	}
-	if s.notifications != nil {
-		_ = s.notifications.NotifyFollow(ctx, currentUserID, targetUser.ID)
 	}
 	return nil
 }
