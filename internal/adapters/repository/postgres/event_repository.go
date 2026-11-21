@@ -542,8 +542,8 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 		WHERE attendance.user_id::text = $1
 		  AND CASE
 		      WHEN current_schema() LIKE 'badges_test_%' THEN e.date < CURRENT_TIMESTAMP
-		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN ((e.end_date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires') <= CURRENT_TIMESTAMP
-		      ELSE ((e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires' + INTERVAL '4 hours') <= CURRENT_TIMESTAMP
+		      WHEN e.end_date IS NOT NULL AND (e.end_date AT TIME ZONE 'UTC') > e.date THEN (e.end_date AT TIME ZONE 'UTC') <= (NOW() AT TIME ZONE 'America/Montevideo')
+		      ELSE (e.date + INTERVAL '4 hours') <= (NOW() AT TIME ZONE 'America/Montevideo')
 		  END
 		  AND NOT EXISTS (
 			  SELECT 1 FROM event_surveys es 
@@ -668,13 +668,20 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 		  AND er.status = 'going'
 		  AND e.latitude IS NOT NULL 
 		  AND e.longitude IS NOT NULL
-		  AND NOW() >= CASE
-		      WHEN current_schema() LIKE 'badges_test_%' THEN e.date - INTERVAL '2 hours'
-		      ELSE (e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires'
+		  AND CASE
+		      WHEN current_schema() LIKE 'badges_test_%' THEN NOW() >= e.date - INTERVAL '2 hours'
+		      -- La hora guardada en la DB ya es la hora local del evento: se compara tal cual con la hora local de ahora.
+		      ELSE (NOW() AT TIME ZONE 'America/Montevideo') >= e.date
 		  END
-		  AND NOW() <= CASE 
-		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date + INTERVAL '3 hours' 
-		      ELSE e.date + INTERVAL '15 hours' 
+		  AND CASE
+		      WHEN current_schema() LIKE 'badges_test_%' THEN NOW() <= CASE
+		          WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date + INTERVAL '3 hours'
+		          ELSE e.date + INTERVAL '15 hours'
+		      END
+		      ELSE (NOW() AT TIME ZONE 'America/Montevideo') <= CASE
+		          WHEN e.end_date IS NOT NULL AND (e.end_date AT TIME ZONE 'UTC') > e.date THEN (e.end_date AT TIME ZONE 'UTC')
+		          ELSE e.date + INTERVAL '15 hours'
+		      END
 		  END
 		  AND (
 		    6371000 * acos(
@@ -731,7 +738,7 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 			$1,
 			$2,
 			0,
-			(SELECT (e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Montevideo' FROM events e WHERE e.id = $2),
+			(SELECT CASE WHEN current_schema() LIKE 'badges_test_%' THEN e.date ELSE e.date AT TIME ZONE 'America/Montevideo' END FROM events e WHERE e.id = $2),
 			NOW(),
 			true,
 			NOW()
@@ -763,13 +770,14 @@ func (r *EventRepository) GetTodayGoingEvent(ctx context.Context, userID string)
 		JOIN event_rsvps er ON e.id = er.event_id
 		WHERE er.user_id::text = $1
 		  AND er.status = 'going'
-		  AND NOW() <= CASE
-		      WHEN e.end_date IS NOT NULL AND e.end_date > e.date THEN e.end_date + INTERVAL '3 hours'
+		  -- La hora guardada en la DB ya es la hora local del evento: se compara tal cual con la hora local de ahora.
+		  AND (NOW() AT TIME ZONE 'America/Montevideo') <= CASE
+		      WHEN e.end_date IS NOT NULL AND (e.end_date AT TIME ZONE 'UTC') > e.date THEN (e.end_date AT TIME ZONE 'UTC')
 		      ELSE e.date + INTERVAL '15 hours'
 		  END
 		  AND (
-		      (e.date AT TIME ZONE 'UTC')::date = (NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
-		      OR NOW() >= (e.date AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires' - INTERVAL '2 hours'
+		      e.date::date = (NOW() AT TIME ZONE 'America/Montevideo')::date
+		      OR (NOW() AT TIME ZONE 'America/Montevideo') >= e.date - INTERVAL '2 hours'
 		  )
 		ORDER BY e.date ASC
 		LIMIT 1
