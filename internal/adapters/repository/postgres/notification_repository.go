@@ -228,6 +228,17 @@ func (r *NotificationRepository) FinishDelivery(ctx context.Context, job domain.
 
 func (r *NotificationRepository) ScheduleEventReminders(ctx context.Context) error {
 	statements := []string{
+		// Cuenta regresiva para quien marcó "voy": a 7, 3 y 1 día del evento (en días de Montevideo), al mediodía.
+		// El día del evento lo cubre event.today y las últimas horas event.starting_soon.
+		`INSERT INTO notifications(id,user_id,type,category,title,body,data,dedupe_key,scheduled_at)
+ SELECT gen_random_uuid(),r.user_id,'event.countdown','events',
+  CASE d.n WHEN 1 THEN 'Mañana salís a bailar' ELSE 'Faltan '||d.n||' días' END,
+  e.title||' · '||to_char(e.date AT TIME ZONE 'America/Montevideo','DD/MM HH24:MI')||' en '||e.location,
+  jsonb_build_object('event_id',e.id::text,'days_left',d.n::text),'event.countdown:'||d.n||':'||e.id::text,
+  GREATEST(NOW(),((NOW() AT TIME ZONE 'America/Montevideo')::date+TIME '12:00') AT TIME ZONE 'America/Montevideo')
+ FROM event_rsvps r JOIN events e ON e.id=r.event_id CROSS JOIN (VALUES (7),(3),(1)) AS d(n)
+ WHERE r.status='going' AND e.date>NOW()
+ AND (e.date AT TIME ZONE 'America/Montevideo')::date-(NOW() AT TIME ZONE 'America/Montevideo')::date=d.n ON CONFLICT DO NOTHING`,
 		`INSERT INTO notifications(id,user_id,type,category,title,body,data,dedupe_key,scheduled_at)
  SELECT gen_random_uuid(),r.user_id,'event.today','events','Hoy salís a bailar',
   e.title||' es hoy · '||to_char(e.date AT TIME ZONE 'America/Montevideo','HH24:MI'),
@@ -320,6 +331,6 @@ func (r *NotificationRepository) NotifyCommunityAnnouncement(ctx context.Context
 }
 
 func (r *NotificationRepository) CancelEventReminders(ctx context.Context, userID, eventID string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM notifications WHERE user_id=$1 AND type IN ('event.today','event.starting_soon') AND data->>'event_id'=$2`, userID, eventID)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM notifications WHERE user_id=$1 AND type IN ('event.countdown','event.today','event.starting_soon') AND data->>'event_id'=$2`, userID, eventID)
 	return err
 }

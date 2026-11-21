@@ -160,4 +160,29 @@ func TestNotificationPostgresIntegration(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM notifications WHERE user_id=$1 AND type='event.starting_soon'`, recipient).Scan(&reminders); err != nil || reminders != 1 {
 		t.Fatalf("event reminder missing: count=%d err=%v", reminders, err)
 	}
+
+	// Cuenta regresiva: un evento en 3 días (de Montevideo) recibe "Faltan 3 días", una sola vez.
+	later := uuid.NewString()
+	if _, err := db.ExecContext(ctx, `INSERT INTO events VALUES($1,'Aguaverde',((NOW() AT TIME ZONE 'America/Montevideo')::date+3+TIME '23:00') AT TIME ZONE 'America/Montevideo',NULL,'Punta del Este',NULL)`, later); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO event_rsvps VALUES($1,$2,'going')`, recipient, later); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := repo.ScheduleEventReminders(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var countdown int
+	var title string
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*),MAX(title) FROM notifications WHERE user_id=$1 AND type='event.countdown' AND data->>'event_id'=$2`, recipient, later).Scan(&countdown, &title); err != nil || countdown != 1 || title != "Faltan 3 días" {
+		t.Fatalf("countdown: count=%d title=%q err=%v", countdown, title, err)
+	}
+	if err := repo.CancelEventReminders(ctx, recipient, later); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM notifications WHERE user_id=$1 AND type='event.countdown' AND data->>'event_id'=$2`, recipient, later).Scan(&countdown); err != nil || countdown != 0 {
+		t.Fatalf("countdown must be cancelled with the RSVP: count=%d err=%v", countdown, err)
+	}
 }
