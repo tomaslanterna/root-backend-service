@@ -14,6 +14,7 @@ type UserRepository interface {
 	RemoveFollower(ctx context.Context, followerID, followedID string) error
 	SearchUsers(ctx context.Context, query string, currentUserID string) ([]domain.User, error)
 	UpdateUser(ctx context.Context, user *domain.User) error
+	UpdateAvatar(ctx context.Context, userID, avatar string) error
 	UpdateUserKycStatus(ctx context.Context, userID string, isVerified bool, country string) error
 }
 
@@ -126,6 +127,9 @@ type DanceRepository interface {
 	GetAllCrews(ctx context.Context) ([]map[string]interface{}, error)
 	GetUserDanceSessions(ctx context.Context, userID string) ([]map[string]interface{}, error)
 	GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error)
+	IsCrewMember(ctx context.Context, squadID, userID string) (bool, error)
+	RegenerateCrewInviteCode(ctx context.Context, squadID, userID string) (string, error)
+	GetCrewInvitePreview(ctx context.Context, inviteCode, viewerID string) (map[string]interface{}, error)
 	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)
 	GetEventLiveRanking(ctx context.Context, eventID string) (map[string]interface{}, error)
 }

@@ -240,7 +240,7 @@ func main() {
 
 	// 4. Inicialización de Handlers HTTP
 	authHandler := handlers.NewAuthHandler(authService)
-	userHandler := handlers.NewUserHandler(userService)
+	userHandler := handlers.NewUserHandler(userService, s3Service)
 	communityHandler := handlers.NewCommunityHandler(communityService)
 	postHandler := handlers.NewPostHandler(postService, s3Service)
 	eventHandler := handlers.NewEventHandler(eventService, s3Service, userRepo)

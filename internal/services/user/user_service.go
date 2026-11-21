@@ -64,6 +64,19 @@ func (s *userService) UnfollowUser(ctx context.Context, currentUserID, targetUse
 	return s.userRepo.RemoveFollower(ctx, currentUserID, targetUser.ID)
 }
 
+// UpdateAvatar guarda la nueva foto de perfil (URL estable o clave de S3) y devuelve el usuario actualizado.
+func (s *userService) UpdateAvatar(ctx context.Context, userID, avatar string) (*domain.User, error) {
+	user, err := s.userRepo.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.userRepo.UpdateAvatar(ctx, userID, avatar); err != nil {
+		return nil, err
+	}
+	user.AvatarURL = &avatar
+	return user, nil
+}
+
 func (s *userService) UpdateUser(ctx context.Context, userID, newUsername, dob, documentID, country string) (*domain.User, error) {
 	// 1. Get current user
 	user, err := s.userRepo.GetUserByID(ctx, userID)

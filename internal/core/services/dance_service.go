@@ -93,6 +93,18 @@ func (s *danceService) JoinPermanentCrew(ctx context.Context, userID, codeOrID s
 	return s.danceRepo.JoinPermanentCrew(ctx, userID, codeOrID)
 }
 
+func (s *danceService) IsCrewMember(ctx context.Context, squadID, userID string) (bool, error) {
+	return s.danceRepo.IsCrewMember(ctx, squadID, userID)
+}
+
+func (s *danceService) RegenerateCrewInviteCode(ctx context.Context, squadID, userID string) (string, error) {
+	return s.danceRepo.RegenerateCrewInviteCode(ctx, squadID, userID)
+}
+
+func (s *danceService) GetCrewInvitePreview(ctx context.Context, inviteCode, viewerID string) (map[string]interface{}, error) {
+	return s.danceRepo.GetCrewInvitePreview(ctx, inviteCode, viewerID)
+}
+
 func (s *danceService) AddCrewMembers(ctx context.Context, squadID string, memberIDs []string, actorUserID string) (map[string]interface{}, error) {
 	return s.danceRepo.AddCrewMembers(ctx, squadID, memberIDs, actorUserID)
 }
