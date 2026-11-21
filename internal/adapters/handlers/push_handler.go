@@ -17,7 +17,7 @@ func NewPushHandler(service *services.PushService) *PushHandler {
 	return &PushHandler{service: service}
 }
 func (h *PushHandler) Status(w http.ResponseWriter, r *http.Request) {
-	respondWithJSON(w, http.StatusOK, map[string]bool{"enabled": h.service.Enabled()})
+	respondWithJSON(w, http.StatusOK, map[string]bool{"enabled": h.service.PlatformEnabled(r.URL.Query().Get("platform"))})
 }
 
 func (h *PushHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +41,7 @@ func (h *PushHandler) Register(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 400, "Invalid push registration")
 		return
 	}
-	if !h.service.Enabled() {
+	if !h.service.PlatformEnabled(body.Platform) {
 		respondWithError(w, 503, "Push notifications are not configured")
 		return
 	}

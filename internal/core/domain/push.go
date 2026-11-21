@@ -10,4 +10,7 @@ type PushJob struct {
 	DeviceID, UserID, Token, Platform, MessageID, ChatID string
 	SenderName, Content                                  string
 	MessageType                                          MessageType
+	NotificationID, NotificationType, Title, Body        string
+	Category                                             NotificationCategory
+	Data                                                 map[string]string
 }

@@ -23,6 +23,16 @@ func (m *MultiPushSender) Enabled() bool {
 	return m != nil && (m.fcm != nil || m.apns != nil)
 }
 
+func (m *MultiPushSender) SupportsPlatform(platform string) bool {
+	if m == nil {
+		return false
+	}
+	if platform == "ios" {
+		return m.apns != nil
+	}
+	return platform == "android" && m.fcm != nil
+}
+
 func (m *MultiPushSender) Send(ctx context.Context, job domain.PushJob) error {
 	if job.Platform == "ios" {
 		if m.apns == nil {

@@ -15,19 +15,24 @@ import (
 )
 
 type KycHandler struct {
-	s3Service   s3service.S3Service
-	kycProvider kycservice.KycProviderService
-	repo        ports.KycRepository
-	userRepo    ports.UserRepository
+	s3Service     s3service.S3Service
+	kycProvider   kycservice.KycProviderService
+	repo          ports.KycRepository
+	userRepo      ports.UserRepository
+	notifications ports.NotificationPublisher
 }
 
-func NewKycHandler(s3Service s3service.S3Service, kycProvider kycservice.KycProviderService, repo ports.KycRepository, userRepo ports.UserRepository) *KycHandler {
-	return &KycHandler{
+func NewKycHandler(s3Service s3service.S3Service, kycProvider kycservice.KycProviderService, repo ports.KycRepository, userRepo ports.UserRepository, publishers ...ports.NotificationPublisher) *KycHandler {
+	handler := &KycHandler{
 		s3Service:   s3Service,
 		kycProvider: kycProvider,
 		repo:        repo,
 		userRepo:    userRepo,
 	}
+	if len(publishers) > 0 {
+		handler.notifications = publishers[0]
+	}
+	return handler
 }
 
 type CreateSessionRequest struct {
@@ -39,9 +44,9 @@ func (h *KycHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	var req CreateSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID == "" {
 		// Fallback to a mock/default if not provided, for backwards compatibility
-		req.UserID = "11111111-1111-1111-1111-111111111111" 
+		req.UserID = "11111111-1111-1111-1111-111111111111"
 	}
-	
+
 	sessionID := fmt.Sprintf("kyc_sess_%d", time.Now().UnixNano())
 	userID := req.UserID
 
@@ -257,6 +262,15 @@ func (h *KycHandler) SubmitSession(w http.ResponseWriter, r *http.Request) {
 	extractedJSON, _ := json.Marshal(result.ExtractedData)
 	session.ExtractedData = string(extractedJSON)
 	h.repo.UpdateSession(r.Context(), session)
+	if h.notifications != nil {
+		approved := session.Status == "APPROVED"
+		title, body := "Verificación pendiente", "No pudimos verificar tu identidad. Revisá los datos e intentá nuevamente."
+		if approved {
+			title, body = "Identidad verificada", "Tu perfil ya cuenta con la verificación de identidad."
+		}
+		_ = h.notifications.Publish(r.Context(), domain.NotificationInput{UserID: session.UserID, Type: "kyc.status", Category: domain.NotificationAccount,
+			Title: title, Body: body, Data: map[string]string{"status": session.Status}, DedupeKey: "kyc.status:" + session.ID + ":" + session.Status})
+	}
 
 	resp := map[string]interface{}{
 		"message": "Verification completed",
