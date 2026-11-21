@@ -69,6 +69,11 @@ type profileUserService struct {
 	user domain.User
 }
 
+// Perfil público: nadie tiene solicitud pendiente.
+func (s *profileUserService) FollowStatus(context.Context, string, *domain.User) (string, error) {
+	return domain.FollowStatusNone, nil
+}
+
 func (s *profileUserService) GetUserByUsername(context.Context, string, string) (*domain.User, bool, error) {
 	u := s.user
 	return &u, false, nil

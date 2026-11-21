@@ -262,10 +262,8 @@ func main() {
 	postHandler := handlers.NewPostHandler(postService, s3Service)
 	eventHandler := handlers.NewEventHandler(eventService, s3Service, userRepo)
 	crewHandler := handlers.NewCrewHandler()
-	searchHandler := handlers.NewSearchHandler(searchService)
-	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo, notificationService)
 	searchHandler := handlers.NewSearchHandler(searchService, s3Service)
-	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
+	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo, notificationService)
 
 	chatHandler := handlers.NewChatHandler(chatService)
 	listenerURL := os.Getenv("CHAT_DATABASE_URL")
