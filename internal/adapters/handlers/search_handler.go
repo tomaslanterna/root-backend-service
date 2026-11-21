@@ -40,9 +40,13 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Event banners are stored as S3 keys; clients need loadable URLs.
-	if events, ok := results.([]domain.Event); ok {
-		resolveEventImages(r.Context(), h.s3Service, events)
+	switch res := results.(type) {
+	case []domain.Event:
+		// Event banners are stored as S3 keys; clients need loadable URLs.
+		resolveEventImages(r.Context(), h.s3Service, res)
+	case []domain.User:
+		// Search is public: never expose email, dob, document, role or follower ID lists.
+		results = domain.PublicUsers(res)
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{

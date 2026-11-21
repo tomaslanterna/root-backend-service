@@ -12,13 +12,18 @@ import (
 type postService struct {
 	postRepo      ports.PostRepository
 	communityRepo ports.CommunityRepository
+	notifications ports.NotificationPublisher
 }
 
-func NewPostService(repo ports.PostRepository, communityRepo ports.CommunityRepository) ports.PostService {
-	return &postService{
+func NewPostService(repo ports.PostRepository, communityRepo ports.CommunityRepository, publishers ...ports.NotificationPublisher) ports.PostService {
+	service := &postService{
 		postRepo:      repo,
 		communityRepo: communityRepo,
 	}
+	if len(publishers) > 0 {
+		service.notifications = publishers[0]
+	}
+	return service
 }
 
 // GetUserPosts lista los posts de un perfil (el acceso a perfiles privados se controla antes).
@@ -115,7 +120,11 @@ func (s *postService) GetPostByID(ctx context.Context, id string, currentUserID 
 }
 
 func (s *postService) ToggleLike(ctx context.Context, postID, userID string) (bool, int, error) {
-	return s.postRepo.ToggleLike(ctx, postID, userID)
+	liked, count, err := s.postRepo.ToggleLike(ctx, postID, userID)
+	if err == nil && liked && s.notifications != nil {
+		_ = s.notifications.NotifyPostLike(ctx, userID, postID)
+	}
+	return liked, count, err
 }
 
 func (s *postService) GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error) {
@@ -123,7 +132,11 @@ func (s *postService) GetPostComments(ctx context.Context, postID string, limit,
 }
 
 func (s *postService) CreatePostComment(ctx context.Context, postID, authorID, content string) (*domain.EventComment, error) {
-	return s.postRepo.CreatePostComment(ctx, postID, authorID, content)
+	comment, err := s.postRepo.CreatePostComment(ctx, postID, authorID, content)
+	if err == nil && comment != nil && s.notifications != nil {
+		_ = s.notifications.NotifyPostComment(ctx, authorID, postID, comment.ID)
+	}
+	return comment, err
 }
 
 func (s *postService) CreatePost(ctx context.Context, post *domain.Post) error {
@@ -229,6 +242,9 @@ func (s *postService) CreateCommunityAnnouncement(ctx context.Context, community
 	created, err := s.postRepo.GetPostByID(ctx, post.ID, authorID)
 	if err != nil {
 		return nil, err
+	}
+	if s.notifications != nil {
+		_ = s.notifications.NotifyCommunityAnnouncement(ctx, authorID, community.ID, created.ID)
 	}
 	return created, nil
 }

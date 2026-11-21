@@ -147,6 +147,14 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		"isFollowing":    isFollowing,
 		"followStatus":   followStatus,
 		"canViewContent": canView,
+	// Only the owner sees their private fields (email, dob, document, country).
+	var body interface{} = user.PublicProfile()
+	if currentUserID != "" && currentUserID == user.ID {
+		body = user
+	}
+	response := map[string]interface{}{
+		"user":        body,
+		"isFollowing": isFollowing,
 	}
 	respondWithJSON(w, http.StatusOK, response)
 }

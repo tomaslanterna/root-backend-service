@@ -9,30 +9,36 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"strings"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type transferService struct {
-	transferRepo ports.TransferRepository
-	chatRepo     ports.ChatRepository
-	messageRepo  ports.MessageRepository
+	transferRepo  ports.TransferRepository
+	chatRepo      ports.ChatRepository
+	messageRepo   ports.MessageRepository
+	notifications ports.NotificationPublisher
 }
 
 func NewTransferService(
 	transferRepo ports.TransferRepository,
 	chatRepo ports.ChatRepository,
 	messageRepo ports.MessageRepository,
+	publishers ...ports.NotificationPublisher,
 ) ports.TransferService {
-	return &transferService{
+	service := &transferService{
 		transferRepo: transferRepo,
 		chatRepo:     chatRepo,
 		messageRepo:  messageRepo,
 	}
+	if len(publishers) > 0 {
+		service.notifications = publishers[0]
+	}
+	return service
 }
 
 func (s *transferService) CreateTransfer(ctx context.Context, eventID, sellerID string, price float64) (*domain.Transfer, error) {
@@ -87,7 +93,14 @@ func (s *transferService) StartDeal(ctx context.Context, transferID, buyerID str
 		return err
 	}
 
-	return s.transferRepo.UpdateStartDeal(ctx, transferID, buyerID, chatID)
+	if err := s.transferRepo.UpdateStartDeal(ctx, transferID, buyerID, chatID); err != nil {
+		return err
+	}
+	if s.notifications != nil {
+		_ = s.notifications.Publish(ctx, domain.NotificationInput{UserID: transfer.SellerID, Type: "transfer.started", Category: domain.NotificationAccount,
+			Title: "Interés en tu entrada", Body: "Alguien quiere iniciar la transferencia de tu entrada.", Data: map[string]string{"transfer_id": transferID}, DedupeKey: "transfer.started:" + transferID})
+	}
+	return nil
 }
 
 func (s *transferService) GetTransfer(ctx context.Context, transferID, currentUserID string) (*domain.Transfer, error) {
@@ -145,6 +158,21 @@ func (s *transferService) UpdateTransferStatus(ctx context.Context, transferID, 
 			}
 			_ = s.messageRepo.CreateMessage(ctx, msg)
 			_ = s.chatRepo.UpdateLastMessage(ctx, *transfer.ChatID, "[Actualización del Trato]")
+		}
+	}
+	if s.notifications != nil {
+		body := "La transferencia cambió a " + string(status) + "."
+		for _, recipient := range []string{transfer.SellerID, func() string {
+			if transfer.BuyerID != nil {
+				return *transfer.BuyerID
+			}
+			return ""
+		}()} {
+			if recipient == "" || recipient == currentUserID {
+				continue
+			}
+			_ = s.notifications.Publish(ctx, domain.NotificationInput{UserID: recipient, Type: "transfer.status", Category: domain.NotificationAccount,
+				Title: "Transferencia actualizada", Body: body, Data: map[string]string{"transfer_id": transferID}, DedupeKey: "transfer.status:" + transferID + ":" + string(status) + ":" + recipient})
 		}
 	}
 

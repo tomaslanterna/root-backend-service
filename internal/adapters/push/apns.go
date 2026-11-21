@@ -142,11 +142,27 @@ func (a *APNS) getAuthToken() (string, error) {
 func (a *APNS) Send(ctx context.Context, job domain.PushJob) error {
 	title := notificationPreview(job.SenderName, "Nuevo mensaje", 80)
 	bodyText := "Tenés un mensaje nuevo."
-	switch job.MessageType {
-	case domain.MessageTypeText:
-		bodyText = notificationPreview(job.Content, bodyText, 240)
-	case domain.MessageTypeImage:
-		bodyText = "📷 Envió una foto"
+	custom := map[string]any{}
+	if job.NotificationType != "" {
+		title = notificationPreview(job.Title, "root", 120)
+		bodyText = notificationPreview(job.Body, "Tenés una novedad.", 500)
+		custom["type"] = job.NotificationType
+		custom["notification_id"] = job.NotificationID
+		custom["recipient_id"] = job.UserID
+		for key, value := range job.Data {
+			custom[key] = value
+		}
+	} else {
+		switch job.MessageType {
+		case domain.MessageTypeText:
+			bodyText = notificationPreview(job.Content, bodyText, 240)
+		case domain.MessageTypeImage:
+			bodyText = "📷 Envió una foto"
+		}
+		custom["type"] = "chat.message"
+		custom["chat_id"] = job.ChatID
+		custom["message_id"] = job.MessageID
+		custom["recipient_id"] = job.UserID
 	}
 
 	payload := map[string]any{
@@ -158,10 +174,9 @@ func (a *APNS) Send(ctx context.Context, job domain.PushJob) error {
 			"sound": "default",
 			"badge": 1,
 		},
-		"type":         "chat.message",
-		"chat_id":      job.ChatID,
-		"message_id":   job.MessageID,
-		"recipient_id": job.UserID,
+	}
+	for key, value := range custom {
+		payload[key] = value
 	}
 
 	payloadBytes, err := json.Marshal(payload)

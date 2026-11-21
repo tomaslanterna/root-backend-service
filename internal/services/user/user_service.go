@@ -10,13 +10,16 @@ import (
 )
 
 type userService struct {
-	userRepo ports.UserRepository
+	userRepo      ports.UserRepository
+	notifications ports.NotificationPublisher
 }
 
-func NewUserService(userRepo ports.UserRepository) ports.UserService {
-	return &userService{
-		userRepo: userRepo,
+func NewUserService(userRepo ports.UserRepository, publishers ...ports.NotificationPublisher) ports.UserService {
+	service := &userService{userRepo: userRepo}
+	if len(publishers) > 0 {
+		service.notifications = publishers[0]
 	}
+	return service
 }
 
 func (s *userService) GetUserByUsername(ctx context.Context, targetUsername string, currentUserID string) (*domain.User, bool, error) {
@@ -161,6 +164,11 @@ func (s *userService) RejectFollowRequest(ctx context.Context, userID, requester
 	}
 	if !existed {
 		return domain.ErrFollowRequestNotFound
+	if err := s.userRepo.AddFollower(ctx, currentUserID, targetUser.ID); err != nil {
+		return err
+	}
+	if s.notifications != nil {
+		_ = s.notifications.NotifyFollow(ctx, currentUserID, targetUser.ID)
 	}
 	return nil
 }

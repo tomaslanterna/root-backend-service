@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/google/uuid"
 	"root-backend-service/internal/core/domain"
+	"root-backend-service/internal/core/ports"
 	"time"
 )
 
@@ -13,9 +14,18 @@ type MatchRepository interface {
 	EnsureSquadChat(ctx context.Context, squadID, userID string) (string, error)
 }
 
-type MatchService struct{ repo MatchRepository }
+type MatchService struct {
+	repo          MatchRepository
+	notifications ports.NotificationPublisher
+}
 
-func NewMatchService(repo MatchRepository) *MatchService { return &MatchService{repo: repo} }
+func NewMatchService(repo MatchRepository, publishers ...ports.NotificationPublisher) *MatchService {
+	service := &MatchService{repo: repo}
+	if len(publishers) > 0 {
+		service.notifications = publishers[0]
+	}
+	return service
+}
 
 func (s *MatchService) ProcessSwipe(ctx context.Context, swipe *domain.EventSwipe) (map[string]interface{}, error) {
 	if _, err := uuid.Parse(swipe.EventID); err != nil {
@@ -35,6 +45,12 @@ func (s *MatchService) ProcessSwipe(ctx context.Context, swipe *domain.EventSwip
 		return nil, err
 	}
 	if crew != nil {
+		if s.notifications != nil {
+			for _, member := range crew.Members {
+				_ = s.notifications.Publish(ctx, domain.NotificationInput{UserID: member.UserID, Type: "crew.match", Category: domain.NotificationCrews,
+					Title: "¡Se armó tu crew!", Body: "Ya tenés grupo para " + crew.EventTitle + ".", Data: map[string]string{"squad_id": crew.ID}, DedupeKey: "crew.match:" + crew.ID + ":" + member.UserID})
+			}
+		}
 		return map[string]interface{}{"status": "matched", "crew": crew}, nil
 	}
 	return map[string]interface{}{"status": "queued", "message": "Swipe registrado. Buscando personas compatibles..."}, nil

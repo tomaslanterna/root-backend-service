@@ -19,15 +19,20 @@ type EventService struct {
 	artistRepo       ports.ArtistRepository
 	aiTicketService  ports.AiTicketService
 	moderatorService ports.ContentModerationService
+	notifications    ports.NotificationPublisher
 }
 
-func NewEventService(eventRepo ports.EventRepository, artistRepo ports.ArtistRepository, aiTicketService ports.AiTicketService, moderatorService ports.ContentModerationService) ports.EventService {
-	return &EventService{
+func NewEventService(eventRepo ports.EventRepository, artistRepo ports.ArtistRepository, aiTicketService ports.AiTicketService, moderatorService ports.ContentModerationService, publishers ...ports.NotificationPublisher) ports.EventService {
+	service := &EventService{
 		eventRepo:        eventRepo,
 		artistRepo:       artistRepo,
 		aiTicketService:  aiTicketService,
 		moderatorService: moderatorService,
 	}
+	if len(publishers) > 0 {
+		service.notifications = publishers[0]
+	}
+	return service
 }
 
 func (s *EventService) GetFeaturedEvents(ctx context.Context, country string) ([]domain.Event, error) {
@@ -43,7 +48,7 @@ func (s *EventService) GetEventByID(ctx context.Context, id string, currentUserI
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Fetch lineup
 	lineup, err := s.artistRepo.GetEventLineup(ctx, id)
 	if err == nil && len(lineup) > 0 {
@@ -69,12 +74,16 @@ func (s *EventService) GetEventByID(ctx context.Context, id string, currentUserI
 			}
 		}(event.ID, event.Title, event.Date.Format("2006-01-02"), event.Location, *event.TicketURL)
 	}
-	
+
 	return event, nil
 }
 
 func (s *EventService) RSVPEvent(ctx context.Context, userID, eventID, status string) (int, int, string, error) {
-	return s.eventRepo.RSVPEvent(ctx, userID, eventID, status)
+	going, notGoing, current, err := s.eventRepo.RSVPEvent(ctx, userID, eventID, status)
+	if err == nil && status != "going" && s.notifications != nil {
+		_ = s.notifications.CancelEventReminders(ctx, userID, eventID)
+	}
+	return going, notGoing, current, err
 }
 
 func (s *EventService) GetFollowedGoingAttendees(ctx context.Context, eventID string, currentUserID string, limit, offset int) ([]domain.Attendee, int, error) {
@@ -91,7 +100,11 @@ func (s *EventService) CreateEventComment(ctx context.Context, eventID string, a
 			return nil, err
 		}
 	}
-	return s.eventRepo.CreateEventComment(ctx, eventID, authorID, content)
+	comment, err := s.eventRepo.CreateEventComment(ctx, eventID, authorID, content)
+	if err == nil && comment != nil && s.notifications != nil {
+		_ = s.notifications.NotifyEventComment(ctx, authorID, eventID, comment.ID)
+	}
+	return comment, err
 }
 
 func (s *EventService) GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error) {
@@ -127,7 +140,7 @@ func (s *EventService) BulkCreateFromCSV(ctx context.Context, file io.Reader) (i
 	reader.Comma = ','
 	reader.LazyQuotes = true
 	reader.TrimLeadingSpace = true
-	
+
 	// Leer cabeceras y omitir
 	_, err := reader.Read()
 	if err != nil {
@@ -151,7 +164,7 @@ func (s *EventService) BulkCreateFromCSV(ctx context.Context, file io.Reader) (i
 		location := strings.TrimSpace(record[2])
 		latStr := strings.TrimSpace(record[3])
 		lngStr := strings.TrimSpace(record[4])
-		
+
 		desc := ""
 		banner := ""
 		if len(record) > 5 {

@@ -37,6 +37,16 @@ func (r *PushRepository) InitSchema(ctx context.Context) error {
  available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
  UNIQUE(message_id,device_id))`,
 		`CREATE INDEX IF NOT EXISTS push_jobs_pending_idx ON push_jobs(available_at,id) WHERE NOT done AND attempts<5`,
+		// NotificationRepository replaces this no-op after its tables exist. Keeping
+		// the hook here makes push registration safe during rolling deployments.
+		`CREATE OR REPLACE FUNCTION root_notification_backfill(p_user UUID,p_device UUID) RETURNS void AS $$
+ BEGIN
+  RETURN;
+ END; $$ LANGUAGE plpgsql`,
+		`CREATE OR REPLACE FUNCTION root_notification_messages_enabled(p_user UUID) RETURNS boolean AS $$
+ BEGIN
+  RETURN TRUE;
+ END; $$ LANGUAGE plpgsql STABLE`,
 		// Same transaction as the message; idempotent message retries cannot enqueue twice.
 		`CREATE OR REPLACE FUNCTION root_push_message_enqueue() RETURNS trigger AS $$
  BEGIN
@@ -83,6 +93,11 @@ func (r *PushRepository) RegisterDevice(ctx context.Context, userID, id, token, 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM push_jobs WHERE device_id=$1 AND (user_id<>$2 OR token<>$3)`, id, userID, token); err != nil {
 		return err
 	}
+	// A newly registered installation must receive future reminders that were
+	// scheduled before the native token became available.
+	if _, err := tx.ExecContext(ctx, `SELECT root_notification_backfill($1,$2)`, userID, id); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -122,6 +137,7 @@ func (r *PushRepository) CanSend(ctx context.Context, job domain.PushJob) (bool,
 	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(
  SELECT 1 FROM push_devices d JOIN chat_participants cp ON cp.user_id=d.user_id AND cp.chat_id=$4
  WHERE d.id=$1 AND d.user_id=$2 AND d.token=$3
+ AND root_notification_messages_enabled($2)
  AND NOT EXISTS(SELECT 1 FROM message_receipts WHERE message_id=$5 AND user_id=$2 AND read_at IS NOT NULL))`,
 		job.DeviceID, job.UserID, job.Token, job.ChatID, job.MessageID).Scan(&allowed)
 	return allowed, err
