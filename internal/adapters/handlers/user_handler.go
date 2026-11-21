@@ -133,8 +133,13 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.resolveAvatar(r, user.AvatarURL)
+	// Only the owner sees their private fields (email, dob, document, country).
+	var body interface{} = user.PublicProfile()
+	if currentUserID != "" && currentUserID == user.ID {
+		body = user
+	}
 	response := map[string]interface{}{
-		"user":        user,
+		"user":        body,
 		"isFollowing": isFollowing,
 	}
 	respondWithJSON(w, http.StatusOK, response)
