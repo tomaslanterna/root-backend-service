@@ -129,21 +129,18 @@ func (h *DanceHandler) JoinPermanentCrew(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Solo vale el código de invitación (el id de la crew ya no sirve para entrar).
 	codeOrID := strings.TrimSpace(chi.URLParam(r, "inviteCode"))
-	if codeOrID == "" {
-		codeOrID = strings.TrimSpace(chi.URLParam(r, "id"))
-	}
 	if codeOrID == "" {
 		var body struct {
 			InviteCode string `json:"inviteCode"`
-			CrewID     string `json:"crewId"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if body.InviteCode != "" {
-			codeOrID = body.InviteCode
-		} else {
-			codeOrID = body.CrewID
-		}
+		codeOrID = strings.TrimSpace(body.InviteCode)
+	}
+	if codeOrID == "" {
+		respondWithError(w, http.StatusBadRequest, "inviteCode is required")
+		return
 	}
 
 	crew, err := h.danceService.JoinPermanentCrew(r.Context(), userID, codeOrID)
@@ -282,6 +279,10 @@ func (h *DanceHandler) GetMyCrews(w http.ResponseWriter, r *http.Request) {
 		if crews == nil {
 			crews = []map[string]interface{}{}
 		}
+		// Listado público: sin códigos de invitación.
+		for _, c := range crews {
+			hideInviteCode(c)
+		}
 		respondWithJSON(w, http.StatusOK, map[string]interface{}{"data": crews})
 		return
 	}
@@ -319,12 +320,71 @@ func (h *DanceHandler) GetMyDanceSessions(w http.ResponseWriter, r *http.Request
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{"data": sessions})
 }
 
+// hideInviteCode saca el código de invitación de una crew: solo lo ven los miembros.
+func hideInviteCode(crew map[string]interface{}) {
+	delete(crew, "inviteCode")
+	delete(crew, "invite_code")
+}
+
+// PreviewCrewInvite devuelve los datos básicos de la crew dueña de un código, para mostrar la invitación
+// antes de unirse. Es público: quien recibe el link puede verla aunque todavía no tenga sesión.
+func (h *DanceHandler) PreviewCrewInvite(w http.ResponseWriter, r *http.Request) {
+	code := strings.TrimSpace(chi.URLParam(r, "code"))
+	viewerID, _ := r.Context().Value(UserIDKey).(string)
+	preview, err := h.danceService.GetCrewInvitePreview(r.Context(), code, viewerID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondWithError(w, http.StatusNotFound, "Este link de invitación no es válido o ya fue reemplazado")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "No se pudo cargar la invitación")
+		return
+	}
+	if h.s3Service != nil {
+		if members, ok := preview["members"].([]map[string]interface{}); ok {
+			for _, m := range members {
+				if avatar, ok := m["avatarUrl"].(*string); ok && avatar != nil && *avatar != "" && !strings.HasPrefix(*avatar, "http") {
+					if url, err := h.s3Service.GenerateViewUrl(r.Context(), *avatar, 7*24*time.Hour); err == nil {
+						m["avatarUrl"] = url
+					}
+				}
+			}
+		}
+	}
+	respondWithJSON(w, http.StatusOK, preview)
+}
+
+// RegenerateInviteCode crea un link de invitación nuevo y anula el anterior. Cualquier miembro puede hacerlo.
+func (h *DanceHandler) RegenerateInviteCode(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserIDKey).(string)
+	if !ok || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User not authenticated")
+		return
+	}
+	squadID := strings.TrimSpace(chi.URLParam(r, "id"))
+	code, err := h.danceService.RegenerateCrewInviteCode(r.Context(), squadID, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondWithError(w, http.StatusNotFound, "Crew not found")
+			return
+		}
+		respondWithError(w, http.StatusInternalServerError, "No se pudo regenerar el link")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{"inviteCode": code})
+}
+
 func (h *DanceHandler) GetCrewByID(w http.ResponseWriter, r *http.Request) {
 	squadID := chi.URLParam(r, "id")
 	crew, err := h.danceService.GetCrewByID(r.Context(), squadID)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, "Crew not found")
 		return
+	}
+	// El código de invitación es solo para miembros: quien ve la crew sin serlo no puede unirse con él.
+	viewerID, _ := r.Context().Value(UserIDKey).(string)
+	if member, err := h.danceService.IsCrewMember(r.Context(), squadID, viewerID); err != nil || !member {
+		hideInviteCode(crew)
 	}
 	if evs, ok := crew["events"].([]map[string]interface{}); ok {
 		h.enrichCrewEventImages(r.Context(), evs)

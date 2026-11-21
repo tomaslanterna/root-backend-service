@@ -257,13 +257,15 @@ func main() {
 
 	// 4. Inicialización de Handlers HTTP
 	authHandler := handlers.NewAuthHandler(authService)
-	userHandler := handlers.NewUserHandler(userService)
+	userHandler := handlers.NewUserHandler(userService, s3Service)
 	communityHandler := handlers.NewCommunityHandler(communityService)
 	postHandler := handlers.NewPostHandler(postService, s3Service)
 	eventHandler := handlers.NewEventHandler(eventService, s3Service, userRepo)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo, notificationService)
+	searchHandler := handlers.NewSearchHandler(searchService, s3Service)
+	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo)
 
 	chatHandler := handlers.NewChatHandler(chatService)
 	listenerURL := os.Getenv("CHAT_DATABASE_URL")

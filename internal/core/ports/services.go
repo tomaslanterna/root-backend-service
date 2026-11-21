@@ -18,6 +18,7 @@ type UserService interface {
 	FollowUser(ctx context.Context, currentUserID, targetUsername string) error
 	UnfollowUser(ctx context.Context, currentUserID, targetUsername string) error
 	UpdateUser(ctx context.Context, userID, newUsername, dob, documentID, country string) (*domain.User, error)
+	UpdateAvatar(ctx context.Context, userID, avatar string) (*domain.User, error)
 }
 
 type SearchService interface {
@@ -127,6 +128,9 @@ type DanceService interface {
 	GetAllCrews(ctx context.Context) ([]map[string]interface{}, error)
 	GetUserDanceSessions(ctx context.Context, userID string) ([]map[string]interface{}, error)
 	GetCrewByID(ctx context.Context, squadID string) (map[string]interface{}, error)
+	IsCrewMember(ctx context.Context, squadID, userID string) (bool, error)
+	RegenerateCrewInviteCode(ctx context.Context, squadID, userID string) (string, error)
+	GetCrewInvitePreview(ctx context.Context, inviteCode, viewerID string) (map[string]interface{}, error)
 	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)
 	GetEventLiveRanking(ctx context.Context, eventID string) (map[string]interface{}, error)
 }

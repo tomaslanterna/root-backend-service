@@ -116,6 +116,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.Delete("/users/{username}/follow", cfg.UserHandler.UnfollowUser)
 			r.Get("/users/me", cfg.UserHandler.GetMe)
 			r.Put("/users/me", cfg.UserHandler.UpdateMe)
+			r.Post("/users/me/avatar", cfg.UserHandler.UpdateAvatar)
 			r.Get("/users/me/communities", cfg.CommunityHandler.GetMyCommunities)
 		})
 
@@ -237,7 +238,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.With(OptionalAuthMiddleware).Get("/", cfg.DanceHandler.GetMyCrews)
 			r.With(AuthMiddleware).Post("/", cfg.DanceHandler.CreatePermanentCrew)
 			r.With(AuthMiddleware).Post("/join/{inviteCode}", cfg.DanceHandler.JoinPermanentCrew)
-			r.With(AuthMiddleware).Post("/{id}/join", cfg.DanceHandler.JoinPermanentCrew)
+			r.With(OptionalAuthMiddleware).Get("/invite/{code}", cfg.DanceHandler.PreviewCrewInvite)
+			r.With(AuthMiddleware).Post("/{id}/invite-code/regenerate", cfg.DanceHandler.RegenerateInviteCode)
 			r.With(AuthMiddleware).Post("/{id}/members", cfg.DanceHandler.AddCrewMembers)
 			r.With(OptionalAuthMiddleware).Get("/{id}", cfg.DanceHandler.GetCrewByID)
 			r.With(OptionalAuthMiddleware).Get("/{id}/rankings", cfg.DanceHandler.GetCrewLeaderboards)
