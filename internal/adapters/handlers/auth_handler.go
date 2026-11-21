@@ -62,6 +62,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.authService.Register(r.Context(), req.Name, req.Username, req.Email, req.Password, req.Role, req.Dob, req.DocumentID, req.Country)
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidFullName) {
+			respondWithJSON(w, http.StatusBadRequest, map[string]string{"message": "Ingresá tu nombre y apellido."})
+			return
+		}
 		if errors.Is(err, domain.ErrInvalidPassword) {
 			respondWithJSON(w, http.StatusBadRequest, map[string]string{"message": "La contraseña debe tener al menos 8 caracteres y como máximo 72 bytes."})
 			return

@@ -39,6 +39,19 @@ func (r *EventRepository) InitSchema(ctx context.Context) error {
 
 	statements := []string{
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS end_date TIMESTAMPTZ`,
+		// Intereses musicales de cada persona (ordenan los destacados). answered_at marca que ya respondió,
+		// aunque haya elegido ninguno, para no volver a preguntarle.
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS favorite_genres TEXT[] NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS interests_answered_at TIMESTAMPTZ`,
+		// Perfil privado: para seguir hace falta que la persona acepte la solicitud.
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT false`,
+		`CREATE TABLE IF NOT EXISTS follow_requests (
+			requester_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			target_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (requester_id, target_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS follow_requests_target_idx ON follow_requests (target_id, created_at DESC)`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS genre VARCHAR(100)`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS department TEXT`,
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS country TEXT`,

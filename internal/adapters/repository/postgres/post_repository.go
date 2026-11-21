@@ -25,7 +25,8 @@ func (r *postRepository) GetGlobalPosts(ctx context.Context, limit, offset int) 
 			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
 		FROM posts p
 		LEFT JOIN users u ON p.author_id = u.id
-		WHERE p.community_id IS NULL
+		-- Los perfiles privados no aparecen en el feed global: sus posts los ven sus seguidores.
+		WHERE p.community_id IS NULL AND NOT COALESCE(u.is_private, false)
 		ORDER BY p.timestamp DESC
 		LIMIT $1 OFFSET $2
 	`
@@ -62,7 +63,7 @@ func (r *postRepository) GetFeaturedPosts(ctx context.Context, limit, offset int
 			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
 		FROM posts p
 		LEFT JOIN users u ON p.author_id = u.id
-		WHERE p.is_featured = TRUE AND p.community_id IS NULL
+		WHERE p.is_featured = TRUE AND p.community_id IS NULL AND NOT COALESCE(u.is_private, false)
 		ORDER BY p.timestamp DESC
 		LIMIT $1 OFFSET $2
 	`
@@ -127,6 +128,41 @@ func (r *postRepository) GetFollowingPosts(ctx context.Context, userID string, l
 	}
 
 	return posts, nil
+}
+
+// GetUserPosts devuelve los posts de un perfil (fuera de comunidades), del más nuevo al más viejo.
+// Quien llama ya verificó que el perfil se puede ver.
+func (r *postRepository) GetUserPosts(ctx context.Context, authorID string, limit, offset int) ([]domain.Post, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			p.id, p.author_id, p.event_id, p.community_id, p.title, p.content, p.long_content,
+			p.header_image_url, p.timestamp, p.is_featured,
+			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
+		FROM posts p
+		JOIN users u ON p.author_id = u.id
+		WHERE p.author_id::text = $1 AND p.community_id IS NULL
+		ORDER BY p.timestamp DESC
+		LIMIT $2 OFFSET $3
+	`, authorID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	posts := make([]domain.Post, 0)
+	for rows.Next() {
+		var p domain.Post
+		if err := rows.Scan(
+			&p.ID, &p.AuthorID, &p.EventID, &p.CommunityID, &p.Title,
+			&p.Content, &p.LongContent, &p.HeaderImageURL, &p.Timestamp, &p.IsFeatured,
+			&p.AuthorName, &p.AuthorAvatar, &p.IsVerified,
+		); err != nil {
+			return nil, err
+		}
+		p.Tags = []string{}
+		posts = append(posts, p)
+	}
+	return posts, rows.Err()
 }
 
 func (r *postRepository) GetPostByID(ctx context.Context, id string, currentUserID string) (*domain.Post, error) {

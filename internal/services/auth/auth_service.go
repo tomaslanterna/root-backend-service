@@ -76,6 +76,10 @@ func (s *authService) Register(ctx context.Context, name, username, email, passw
 	if err := ValidatePassword(password); err != nil {
 		return nil, err
 	}
+	name = domain.NormalizeFullName(name)
+	if !domain.IsFullName(name) {
+		return nil, domain.ErrInvalidFullName
+	}
 	username = strings.ToLower(username)
 	// 1. Validate if user already exists
 	_, err := s.userRepo.GetUserByEmail(ctx, email)

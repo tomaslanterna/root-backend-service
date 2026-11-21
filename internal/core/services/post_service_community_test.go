@@ -22,6 +22,9 @@ func (s *postRepositoryForCommunityStub) GetFeaturedPosts(context.Context, int, 
 func (s *postRepositoryForCommunityStub) GetFollowingPosts(context.Context, string, int, int) ([]domain.Post, error) {
 	return nil, nil
 }
+func (s *postRepositoryForCommunityStub) GetUserPosts(context.Context, string, int, int) ([]domain.Post, error) {
+	return nil, nil
+}
 func (s *postRepositoryForCommunityStub) GetPostByID(context.Context, string, string) (*domain.Post, error) {
 	return s.created, nil
 }
