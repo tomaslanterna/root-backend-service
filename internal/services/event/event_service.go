@@ -86,6 +86,15 @@ func (s *EventService) RSVPEvent(ctx context.Context, userID, eventID, status st
 	return going, notGoing, current, err
 }
 
+// ClearRSVP quita el "voy"/"no voy". Sin "voy" ya no hay recordatorios del evento para esa persona.
+func (s *EventService) ClearRSVP(ctx context.Context, userID, eventID string) (int, int, error) {
+	going, notGoing, err := s.eventRepo.ClearRSVP(ctx, userID, eventID)
+	if err == nil && s.notifications != nil {
+		_ = s.notifications.CancelEventReminders(ctx, userID, eventID)
+	}
+	return going, notGoing, err
+}
+
 func (s *EventService) GetFollowedGoingAttendees(ctx context.Context, eventID string, currentUserID string, limit, offset int) ([]domain.Attendee, int, error) {
 	return s.eventRepo.GetFollowedGoingAttendees(ctx, eventID, currentUserID, limit, offset)
 }

@@ -11,6 +11,7 @@ import (
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
@@ -308,6 +309,41 @@ func (r *EventRepository) RSVPEvent(ctx context.Context, userID, eventID, status
 		return 0, 0, "", fmt.Errorf("committing rsvp: %w", err)
 	}
 	return goingCount, notGoingCount, status, nil
+}
+
+func (r *EventRepository) ClearRSVP(ctx context.Context, userID, eventID string) (int, int, error) {
+	if _, err := uuid.Parse(userID); err != nil {
+		return 0, 0, sql.ErrNoRows
+	}
+	if _, err := uuid.Parse(eventID); err != nil {
+		return 0, 0, sql.ErrNoRows
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("beginning clear rsvp transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var eventExists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1::uuid)`, eventID).Scan(&eventExists); err != nil {
+		return 0, 0, fmt.Errorf("checking event before clearing rsvp: %w", err)
+	}
+	if !eventExists {
+		return 0, 0, sql.ErrNoRows
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM event_rsvps WHERE user_id = $1::uuid AND event_id = $2::uuid`, userID, eventID); err != nil {
+		return 0, 0, fmt.Errorf("deleting event rsvp: %w", err)
+	}
+	var goingCount, notGoingCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FILTER (WHERE status = 'going'), COUNT(*) FILTER (WHERE status = 'not_going')
+		FROM event_rsvps WHERE event_id = $1::uuid`, eventID).Scan(&goingCount, &notGoingCount); err != nil {
+		return 0, 0, fmt.Errorf("reading rsvp counts: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("committing clear rsvp: %w", err)
+	}
+	return goingCount, notGoingCount, nil
 }
 
 func (r *EventRepository) GetFollowedGoingAttendees(ctx context.Context, eventID, currentUserID string, limit, offset int) ([]domain.Attendee, int, error) {
