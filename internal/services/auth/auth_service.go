@@ -215,6 +215,13 @@ func (s *authService) ValidateSession(ctx context.Context, userID string, versio
 		return nil
 	}
 	current, err := s.sessions.GetSessionVersion(ctx, userID)
+	// Una versión distinta puede ser un valor viejo del caché (por ejemplo, un login justo después de cambiar la
+	// contraseña): se confirma contra la base antes de rechazar.
+	if err == nil && current != version {
+		if fresh, ok := s.sessions.(freshSessionReader); ok {
+			current, err = fresh.GetFreshSessionVersion(ctx, userID)
+		}
+	}
 	if err != nil || current != version {
 		return domain.ErrInvalidSession
 	}

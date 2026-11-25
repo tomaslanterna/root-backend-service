@@ -18,6 +18,8 @@ type NotificationRepository interface {
 	CanSendDelivery(context.Context, domain.PushJob) (bool, error)
 	FinishDelivery(context.Context, domain.PushJob, bool, time.Duration) error
 	ScheduleEventReminders(context.Context) error
+	// ScheduleBirthdays recibe la fecha de calendario de Montevideo (solo importan año, mes y día).
+	ScheduleBirthdays(context.Context, time.Time) error
 	Prune(context.Context) error
 	NotifyFollow(context.Context, string, string) error
 	NotifyPostLike(context.Context, string, string) error

@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"math"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
@@ -32,16 +32,22 @@ type EventHandler struct {
 	s3Service    s3.S3Service
 	userRepo     ports.UserRepository
 	tempCrews    ports.TempCrewService
+	rrpps        ports.EventRRPPService
 }
 
 // SetTempCrewService habilita el resumen de crews temporales en el detalle del evento (`tempCrews`).
 func (h *EventHandler) SetTempCrewService(svc ports.TempCrewService) { h.tempCrews = svc }
 
-// eventDetailResponse es el evento más el resumen de crews temporales. Solo lo usa el detalle: el listado y los
-// destacados siguen devolviendo domain.Event sin `tempCrews`.
+// SetEventRRPPService habilita la carga de los RRPPs oficiales en el detalle del evento (`rrpps`).
+func (h *EventHandler) SetEventRRPPService(svc ports.EventRRPPService) { h.rrpps = svc }
+
+// eventDetailResponse es el evento más el resumen de crews temporales y los RRPPs oficiales. Solo lo usa el
+// detalle: el listado y los destacados siguen devolviendo domain.Event sin `tempCrews` ni `rrpps`.
 type eventDetailResponse struct {
 	*domain.Event
 	TempCrews *domain.TempCrewsEventSummary `json:"tempCrews,omitempty"`
+	// RRPPs siempre está presente en el detalle: [] si el evento no tiene.
+	RRPPs []domain.EventRRPP `json:"rrpps"`
 }
 
 func NewEventHandler(eventService ports.EventService, s3Service s3.S3Service, userRepo ports.UserRepository) *EventHandler {
@@ -188,9 +194,9 @@ func (h *EventHandler) GetFeaturedEvents(w http.ResponseWriter, r *http.Request)
 			events = domain.RankByInterests(events, interests)
 		}
 	}
-	
+
 	h.enrichEventImages(r.Context(), events)
-	
+
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"data": events,
 		"meta": map[string]interface{}{"total": len(events)},
@@ -250,8 +256,24 @@ func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Error obteniendo el evento")
 		return
 	}
+	// RRPPs: consulta aparte (como el lineup), con el id canónico que devolvió el repositorio.
+	rrpps := []domain.EventRRPP{}
+	if h.rrpps != nil {
+		loaded, err := h.rrpps.ListForEvent(r.Context(), event.ID)
+		if err != nil {
+			cancelCrews()
+			waitCrews()
+			log.Printf("event %s: loading rrpps: %v", event.ID, err)
+			respondWithError(w, http.StatusInternalServerError, "Error obteniendo el evento")
+			return
+		}
+		if loaded != nil {
+			rrpps = loaded
+		}
+	}
 	h.enrichEventImage(r.Context(), event)
-	response := eventDetailResponse{Event: event, TempCrews: waitCrews()}
+	h.resolveRRPPAvatars(r.Context(), rrpps)
+	response := eventDetailResponse{Event: event, TempCrews: waitCrews(), RRPPs: rrpps}
 	if response.TempCrews != nil {
 		for i := range response.TempCrews.Preview {
 			signBannerRef(r.Context(), h.s3Service, &response.TempCrews.Preview[i].Event)
@@ -579,7 +601,7 @@ func (h *EventHandler) BulkCreateEventsCSV(w http.ResponseWriter, r *http.Reques
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Eventos creados exitosamente",
-		"count": count,
+		"count":   count,
 	})
 }
 
@@ -719,6 +741,25 @@ func resolveEventImages(ctx context.Context, storage s3.S3Service, events []doma
 					}
 				}
 			}
+		}
+	}
+}
+
+// resolveRRPPAvatars convierte las claves de S3 guardadas en users.avatar_url en URLs cargables.
+func (h *EventHandler) resolveRRPPAvatars(ctx context.Context, rrpps []domain.EventRRPP) {
+	if h.s3Service == nil {
+		return
+	}
+	for i := range rrpps {
+		if rrpps[i].AvatarURL == nil {
+			continue
+		}
+		raw := *rrpps[i].AvatarURL
+		if raw == "" || strings.HasPrefix(raw, "http") {
+			continue
+		}
+		if url, err := h.s3Service.GenerateViewUrl(ctx, raw, 7*24*time.Hour); err == nil {
+			rrpps[i].AvatarURL = &url
 		}
 	}
 }

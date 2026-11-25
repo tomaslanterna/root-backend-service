@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -69,6 +70,7 @@ func main() {
 	matchRepo := postgres.NewMatchRepository(db)
 	danceRepo := postgres.NewDanceRepository(db)
 	tempCrewRepo := postgres.NewTempCrewRepository(db)
+	eventRRPPRepo := postgres.NewEventRRPPRepository(db)
 
 	initSchema := func(initialize func(context.Context) error) error {
 		if !*initializeSchema {
@@ -103,6 +105,15 @@ func main() {
 	}
 	if !recoveryService.Enabled() {
 		log.Println("Password recovery disabled; select and configure an email provider")
+	}
+	// Caché de la versión de sesión: evita un SELECT por cada request autenticada (ver SessionVersionCache).
+	sessionCacheTTL := envDuration("SESSION_CACHE_TTL", 15*time.Second)
+	sessionCache := auth.NewSessionVersionCache(recoveryRepo, sessionCacheTTL, envInt("SESSION_CACHE_MAX_ENTRIES", 50000))
+	recoveryService.SetOnPasswordReset(sessionCache.Clear)
+	if sessionCacheTTL > 0 {
+		log.Printf("Session version cache enabled (ttl=%s)", sessionCacheTTL)
+	} else {
+		log.Println("Session version cache disabled (SESSION_CACHE_TTL<=0): every authenticated request queries the database")
 	}
 	recoveryDone := make(chan struct{})
 	go func() {
@@ -183,8 +194,30 @@ func main() {
 		defer ticker.Stop()
 		pruneTicker := time.NewTicker(time.Hour)
 		defer pruneTicker.Stop()
-		reminderTicker := time.NewTicker(time.Minute)
+		// Avisos de eventos cada 5 minutos: "empieza pronto" (3 h antes) y la reseña (2 h después) dependen de la hora,
+		// y así también les llegan a quienes marcan "voy" durante el día. El dedupe evita duplicados.
+		reminderTicker := time.NewTicker(5 * time.Minute)
 		defer reminderTicker.Stop()
+		// Cumpleaños: una sola corrida por día de Montevideo (el saludo igual sale a las 10:00). Si falla, se reintenta
+		// en el próximo tick; si el servidor se reinicia, vuelve a correr y el dedupe birthday:{año} evita duplicados.
+		var birthdaysScheduledFor time.Time
+		scheduleReminders := func() {
+			if err := notificationService.ScheduleEventReminders(pushCtx); err != nil && pushCtx.Err() == nil {
+				log.Printf("notification scheduler: %v", err)
+			}
+			today := coreServices.MontevideoDate(time.Now())
+			if today.Equal(birthdaysScheduledFor) {
+				return
+			}
+			if err := notificationService.ScheduleBirthdays(pushCtx, today); err != nil {
+				if pushCtx.Err() == nil {
+					log.Printf("birthday scheduler: %v", err)
+				}
+				return
+			}
+			birthdaysScheduledFor = today
+		}
+		scheduleReminders()
 		for {
 			select {
 			case <-pushCtx.Done():
@@ -197,9 +230,7 @@ func main() {
 					log.Printf("notification worker: %v", err)
 				}
 			case <-reminderTicker.C:
-				if err := notificationService.ScheduleEventReminders(pushCtx); err != nil && pushCtx.Err() == nil {
-					log.Printf("notification scheduler: %v", err)
-				}
+				scheduleReminders()
 			case <-pruneTicker.C:
 				if err := pushRepo.Prune(pushCtx); err != nil && pushCtx.Err() == nil {
 					log.Printf("push cleanup: %v", err)
@@ -236,7 +267,7 @@ func main() {
 	}
 
 	// 3. Inicialización de Servicios
-	authService := auth.NewAuthService(userRepo, recoveryRepo)
+	authService := auth.NewAuthService(userRepo, sessionCache)
 	userService := user.NewUserService(userRepo, notificationService)
 
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()
@@ -267,6 +298,7 @@ func main() {
 	postHandler := handlers.NewPostHandler(postService, s3Service)
 	eventHandler := handlers.NewEventHandler(eventService, s3Service, userRepo)
 	eventHandler.SetTempCrewService(tempCrewService)
+	eventHandler.SetEventRRPPService(coreServices.NewEventRRPPService(eventRRPPRepo))
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService, s3Service)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo, notificationService)
@@ -353,11 +385,14 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:         ":" + port,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:    ":" + port,
+		Handler: router,
+		// ReadTimeout incluye leer el body: con 15 s se cortaban las subidas de fotos desde datos móviles.
+		ReadHeaderTimeout: envDuration("HTTP_READ_HEADER_TIMEOUT", 10*time.Second),
+		ReadTimeout:       envDuration("HTTP_READ_TIMEOUT", 60*time.Second),
+		WriteTimeout:      envDuration("HTTP_WRITE_TIMEOUT", 30*time.Second),
+		// Mayor que el idle timeout del ALB/nginx (120 s), para que el proxy cierre primero y no reuse una conexión ya cerrada.
+		IdleTimeout: envDuration("HTTP_IDLE_TIMEOUT", 130*time.Second),
 	}
 	if *listenAddress != "" {
 		server.Addr = *listenAddress
@@ -392,4 +427,31 @@ func main() {
 	}
 
 	log.Println("✅ Servidor detenido correctamente.")
+}
+
+// envDuration lee una duración (por ejemplo "15s", "2m"). "0" es válido; un valor inválido usa el default y se avisa.
+func envDuration(name string, fallback time.Duration) time.Duration {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < 0 {
+		log.Printf("%s=%q is invalid; using %s", name, raw, fallback)
+		return fallback
+	}
+	return d
+}
+
+func envInt(name string, fallback int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		log.Printf("%s=%q is invalid; using %d", name, raw, fallback)
+		return fallback
+	}
+	return n
 }

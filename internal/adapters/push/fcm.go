@@ -61,6 +61,10 @@ func (f *FCM) Send(ctx context.Context, job domain.PushJob) error {
 		data["type"] = job.NotificationType
 		data["notification_id"] = job.NotificationID
 		data["recipient_id"] = job.UserID
+		// La app Android elige el canal del sistema (Eventos, Social, Cuenta…) según la categoría.
+		if job.Category != "" {
+			data["category"] = string(job.Category)
+		}
 		data["title"] = notificationPreview(job.Title, "root", 120)
 		data["body"] = notificationPreview(job.Body, "Tenés una novedad.", 500)
 		payload := map[string]any{"message": map[string]any{

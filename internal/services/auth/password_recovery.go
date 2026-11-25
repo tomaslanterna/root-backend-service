@@ -25,7 +25,12 @@ type PasswordRecovery struct {
 	sender  ports.PasswordResetSender
 	key     []byte
 	baseURL *url.URL
+	// onPasswordReset avisa que cambió una contraseña (y con ella la versión de sesión de alguien).
+	onPasswordReset func()
 }
+
+// SetOnPasswordReset registra un aviso que se ejecuta tras cada cambio de contraseña exitoso.
+func (s *PasswordRecovery) SetOnPasswordReset(fn func()) { s.onPasswordReset = fn }
 
 func NewPasswordRecovery(repo ports.PasswordRecoveryRepository, sender ports.PasswordResetSender, key, frontendURL string) (*PasswordRecovery, error) {
 	s := &PasswordRecovery{repo: repo, sender: sender, key: []byte(key)}
@@ -135,7 +140,13 @@ func (s *PasswordRecovery) ResetPassword(ctx context.Context, token, password, c
 	if err != nil {
 		return errors.New("hash reset password")
 	}
-	return s.repo.ResetPassword(ctx, hash, string(passwordHash))
+	if err := s.repo.ResetPassword(ctx, hash, string(passwordHash)); err != nil {
+		return err
+	}
+	if s.onPasswordReset != nil {
+		s.onPasswordReset()
+	}
+	return nil
 }
 
 func (s *PasswordRecovery) ProcessNext(ctx context.Context) (bool, error) {

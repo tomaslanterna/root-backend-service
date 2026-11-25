@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type NotificationRepository struct{ db *sql.DB }
@@ -263,6 +264,31 @@ func (r *NotificationRepository) ScheduleEventReminders(ctx context.Context) err
 		if _, err := r.db.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("schedule event notifications: %w", err)
 		}
+	}
+	return nil
+}
+
+// ScheduleBirthdays saluda a quien cumple años en la fecha de calendario dada
+// (fecha de Montevideo), a las 10:00 de Montevideo o ya si esa hora pasó.
+// Es idempotente: dedupe_key birthday:{año} deja como máximo uno por usuario y año.
+func (r *NotificationRepository) ScheduleBirthdays(ctx context.Context, today time.Time) error {
+	if today.IsZero() {
+		return fmt.Errorf("schedule birthday notifications: missing date")
+	}
+	// users.dob es texto libre: se filtra el formato antes de mirarlo y nunca se castea.
+	// El título debe entrar en el CHECK de 120 caracteres (20 de prefijo + "!").
+	_, err := r.db.ExecContext(ctx, `INSERT INTO notifications(id,user_id,type,category,title,body,data,dedupe_key,scheduled_at)
+ SELECT gen_random_uuid(),u.id,$1,$2,'¡Feliz cumpleaños, @'||u.username||'!',$3,
+  jsonb_build_object('username',u.username),$4,
+  GREATEST(NOW(),($5::date+TIME '10:00') AT TIME ZONE 'America/Montevideo')
+ FROM users u
+ WHERE u.username IS NOT NULL AND btrim(u.username)<>'' AND char_length(u.username)<=99
+ AND u.dob ~ '^\d{4}-\d{2}-\d{2}$' AND substring(u.dob FROM 6 FOR 5)=ANY($6::text[])
+ ON CONFLICT DO NOTHING`,
+		domain.BirthdayNotificationType, string(domain.BirthdayNotificationCategory), domain.BirthdayNotificationBody,
+		domain.BirthdayDedupeKey(today.Year()), today.Format("2006-01-02"), pq.Array(domain.BirthdayMonthDays(today)))
+	if err != nil {
+		return fmt.Errorf("schedule birthday notifications: %w", err)
 	}
 	return nil
 }
