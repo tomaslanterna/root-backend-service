@@ -37,3 +37,5 @@ The application is built with **Go (Golang)**.
 - **Search System:**
   - `SearchUsers` strictly omits the currently authenticated user (`id != $2`) to prevent self-discovery.
   - Important: Context user ID is stored under `UserIDKey` (custom type), not the string `"userID"`. Unauthenticated searches use a dummy UUID fallback (`00000000-0000-0000-0000-000000000000`) to prevent PostgreSQL type errors.
+
+- **Temporary Crews:** crews tied to one event (`squads.type='temporary'`), joined by host-approved requests (`crew_join_requests`). Reuses `squads`/`squad_members`/chat `CREWS`; one temporary crew per user and event is enforced by the partial unique index on `squad_members(temp_event_id, user_id)`. Contract and rules: the "Crews temporales" section of the frontend `API_Specs.md`. The PostgreSQL integration test is opt-in (`TEMP_CREW_TEST_USE_LOCAL_ENV=1`) and runs in an isolated schema.

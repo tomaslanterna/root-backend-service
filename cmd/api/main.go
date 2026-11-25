@@ -68,6 +68,7 @@ func main() {
 	communityRepo := postgres.NewCommunityRepository(db)
 	matchRepo := postgres.NewMatchRepository(db)
 	danceRepo := postgres.NewDanceRepository(db)
+	tempCrewRepo := postgres.NewTempCrewRepository(db)
 
 	initSchema := func(initialize func(context.Context) error) error {
 		if !*initializeSchema {
@@ -230,6 +231,9 @@ func main() {
 	if err := danceRepo.InitSchema(context.Background()); err != nil {
 		log.Fatalf("Could not initialize the required dance/crew schema: %v", err)
 	}
+	if err := initSchema(tempCrewRepo.InitSchema); err != nil {
+		log.Fatalf("Could not initialize the required temporary crew schema: %v", err)
+	}
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo, recoveryRepo)
@@ -247,6 +251,7 @@ func main() {
 	communityService := community.NewCommunityService(communityRepo)
 	matchService := coreServices.NewMatchService(matchRepo, notificationService)
 	danceService := coreServices.NewDanceService(danceRepo, eventRepo)
+	tempCrewService := coreServices.NewTempCrewService(tempCrewRepo)
 
 	// Inyectar dependencias para KYC
 	s3Service, err := s3service.NewS3Service(context.Background())
@@ -261,11 +266,12 @@ func main() {
 	communityHandler := handlers.NewCommunityHandler(communityService)
 	postHandler := handlers.NewPostHandler(postService, s3Service)
 	eventHandler := handlers.NewEventHandler(eventService, s3Service, userRepo)
+	eventHandler.SetTempCrewService(tempCrewService)
 	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService, s3Service)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo, notificationService)
 
-	chatHandler := handlers.NewChatHandler(chatService)
+	chatHandler := handlers.NewChatHandler(chatService, s3Service)
 	listenerURL := os.Getenv("CHAT_DATABASE_URL")
 	if listenerURL == "" {
 		listenerURL = dbURL
@@ -287,6 +293,31 @@ func main() {
 	aiHandler := handlers.NewAIHandler()
 	matchHandler := handlers.NewMatchHandler(matchService)
 	danceHandler := handlers.NewDanceHandler(danceService, s3Service)
+	danceHandler.SetTempCrewService(tempCrewService)
+	tempCrewHandler := handlers.NewTempCrewHandler(tempCrewService, s3Service)
+	if *backgroundWorkers {
+		// Cierra las solicitudes pendientes de las crews temporales cuyo evento terminó. Idempotente y con lock en PostgreSQL.
+		go func() {
+			closeEnded := func() {
+				if n, err := tempCrewService.CloseEnded(pushCtx); err != nil && pushCtx.Err() == nil {
+					log.Printf("temporary crew close: %v", err)
+				} else if n > 0 {
+					log.Printf("temporary crew close: %d pending requests cancelled", n)
+				}
+			}
+			closeEnded()
+			ticker := time.NewTicker(15 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-pushCtx.Done():
+					return
+				case <-ticker.C:
+					closeEnded()
+				}
+			}
+		}()
+	}
 
 	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
@@ -312,6 +343,7 @@ func main() {
 		AIHandler:           aiHandler,
 		MatchHandler:        matchHandler,
 		DanceHandler:        danceHandler,
+		TempCrewHandler:     tempCrewHandler,
 	})
 
 	// 6. Configuración y Arranque del Servidor HTTP
