@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -20,15 +21,16 @@ import (
 )
 
 type eventServiceStub struct {
-	filter       domain.EventFilter
-	currentUser  string
-	rsvpUser     string
+	filter           domain.EventFilter
+	currentUser      string
+	rsvpUser         string
 	rsvpStatus       string
 	commentText      string
 	createCommentErr error
 	serviceCalls     int
 	bannerEventID    string
 	banner           string
+	clearErr         error
 }
 
 func (s *eventServiceStub) GetFeaturedEvents(context.Context, string) ([]domain.Event, error) {
@@ -50,6 +52,15 @@ func (s *eventServiceStub) RSVPEvent(_ context.Context, userID, _ string, status
 	s.rsvpUser = userID
 	s.rsvpStatus = status
 	return 8, 3, status, nil
+}
+
+func (s *eventServiceStub) ClearRSVP(_ context.Context, userID, eventID string) (int, int, error) {
+	s.rsvpUser = userID
+	s.rsvpStatus = "cleared:" + eventID
+	if s.clearErr != nil {
+		return 0, 0, s.clearErr
+	}
+	return 7, 3, nil
 }
 
 func (s *eventServiceStub) GetFollowedGoingAttendees(context.Context, string, string, int, int) ([]domain.Attendee, int, error) {
@@ -306,5 +317,41 @@ func TestUpdateEventImageStoresTheS3KeyForAdmins(t *testing.T) {
 	_ = json.Unmarshal(response.Body.Bytes(), &payload)
 	if payload["cinematicBannerUrl"] != "https://signed/"+storage.uploadedKey {
 		t.Fatalf("unexpected response %v", payload)
+	}
+}
+
+func TestClearRSVPRemovesTheResponseForTheAuthenticatedUser(t *testing.T) {
+	service := &eventServiceStub{}
+	handler := NewEventHandler(service, nil, nil)
+	router := chi.NewRouter()
+	router.Delete("/events/{id}/rsvp", handler.ClearRSVP)
+
+	anonymous := httptest.NewRecorder()
+	router.ServeHTTP(anonymous, httptest.NewRequest(http.MethodDelete, "/events/event-9/rsvp", nil))
+	if anonymous.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without a session, got %d", anonymous.Code)
+	}
+
+	request := httptest.NewRequest(http.MethodDelete, "/events/event-9/rsvp", nil)
+	request = request.WithContext(context.WithValue(request.Context(), UserIDKey, "user-1"))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	var body map[string]interface{}
+	_ = json.Unmarshal(response.Body.Bytes(), &body)
+	if response.Code != http.StatusOK || service.rsvpUser != "user-1" || service.rsvpStatus != "cleared:event-9" {
+		t.Fatalf("unexpected call: %d %+v", response.Code, service)
+	}
+	if body["success"] != true || body["goingCount"] != float64(7) || body["notGoingCount"] != float64(3) {
+		t.Fatalf("counts are returned: %v", body)
+	}
+	if value, present := body["userRsvp"]; !present || value != nil {
+		t.Fatalf("userRsvp must be null so the client shows no answer: %v", body)
+	}
+
+	service.clearErr = sql.ErrNoRows
+	missing := httptest.NewRecorder()
+	router.ServeHTTP(missing, request)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("unknown event is a 404, got %d", missing.Code)
 	}
 }

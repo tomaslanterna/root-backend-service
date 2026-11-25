@@ -455,6 +455,28 @@ func TestTempCrewPostgresIntegration(t *testing.T) {
 		t.Fatalf("crews of an event should use squads_temporary_event_idx:\n%s", p)
 	}
 
+	// ---- quitar el "voy" (DELETE /v1/events/{id}/rsvp)
+	events := &EventRepository{db: db}
+	leaver := newUser("Leaver")
+	mustExec(`INSERT INTO event_rsvps(user_id, event_id, status) VALUES($1,$2,'going')`, leaver, listEvent)
+	before := count(`SELECT COUNT(*) FROM event_rsvps WHERE event_id=$1 AND status='going'`, listEvent)
+	going, notGoing, err := events.ClearRSVP(ctx, leaver, listEvent)
+	if err != nil || going != before-1 || count(`SELECT COUNT(*) FROM event_rsvps WHERE user_id=$1 AND event_id=$2`, leaver, listEvent) != 0 {
+		t.Fatalf("clearing the rsvp removes the row and returns fresh counts: %d/%d %v", going, notGoing, err)
+	}
+	if again, _, err := events.ClearRSVP(ctx, leaver, listEvent); err != nil || again != going {
+		t.Fatalf("clearing twice is idempotent: %d %v", again, err)
+	}
+	if _, _, err := events.ClearRSVP(ctx, leaver, uuid.NewString()); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("unknown event: %v", err)
+	}
+	if _, _, err := events.ClearRSVP(ctx, leaver, "not-a-uuid"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("invalid id is a not-found, not a 500: %v", err)
+	}
+	if count(`SELECT COUNT(*) FROM event_rsvps WHERE event_id=$1 AND status='going'`, listEvent) != before-1 {
+		t.Fatal("other people's rsvps are untouched")
+	}
+
 	// ---- mis crews y descubrir
 	mine := newUser("Mine")
 	mustExec(`INSERT INTO event_rsvps(user_id, event_id, status) VALUES($1,$2,'going')`, mine, listEvent)

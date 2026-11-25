@@ -156,6 +156,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(AuthMiddleware).Get("/events/live-status", cfg.EventHandler.GetLiveEventStatus)
 		r.With(OptionalAuthMiddleware).Get("/events/{id}", cfg.EventHandler.GetEventByID)
 		r.With(AuthMiddleware).Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
+		r.With(AuthMiddleware).Delete("/events/{id}/rsvp", cfg.EventHandler.ClearRSVP)
 		r.With(AuthMiddleware).Get("/events/{id}/attendees/followed", cfg.EventHandler.GetFollowedGoingAttendees)
 		// Crews temporales: atadas a un evento, se entra con solicitud que aprueba quien la creó.
 		if cfg.TempCrewHandler != nil {

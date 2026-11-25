@@ -123,6 +123,9 @@ func (f *fakeEventRepoForDance) GetEvents(ctx context.Context, filter domain.Eve
 func (f *fakeEventRepoForDance) RSVPEvent(ctx context.Context, userID, eventID, status string) (int, int, string, error) {
 	return 0, 0, "", nil
 }
+func (f *fakeEventRepoForDance) ClearRSVP(ctx context.Context, userID, eventID string) (int, int, error) {
+	return 0, 0, nil
+}
 func (f *fakeEventRepoForDance) SearchEvents(ctx context.Context, query string) ([]domain.Event, error) {
 	return nil, nil
 }
