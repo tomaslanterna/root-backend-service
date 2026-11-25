@@ -31,14 +31,19 @@ func (r *chatRepository) CreateChat(ctx context.Context, chat *domain.Chat) erro
 func (r *chatRepository) GetChatByID(ctx context.Context, id string) (*domain.Chat, error) {
 	query := `
 		SELECT c.id, c.type, c.last_message, c.created_at, c.updated_at,
-		 COALESCE(s.id::text,''),COALESCE(s.name,''),COALESCE(s.event_id::text,'')
-		FROM chats c LEFT JOIN LATERAL(SELECT id,name,event_id FROM squads WHERE chat_room_id=c.id ORDER BY id LIMIT 1) s ON true
+		 COALESCE(s.id::text,''),COALESCE(s.name,''),COALESCE(s.event_id::text,''),
+		 COALESCE(s.type,''),COALESCE(ev.title,''),ev.date,COALESCE(ev.location,''),COALESCE(ev.cinematic_banner_url,'')
+		FROM chats c LEFT JOIN LATERAL(SELECT id,name,event_id,type FROM squads WHERE chat_room_id=c.id ORDER BY id LIMIT 1) s ON true
+		LEFT JOIN events ev ON ev.id=s.event_id AND s.type='temporary'
 		WHERE c.id = $1
 	`
 	var chat domain.Chat
+	var squadType string
+	var eventDate sql.NullTime
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&chat.ID, &chat.Type, &chat.LastMessage, &chat.CreatedAt, &chat.UpdatedAt,
 		&chat.SquadID, &chat.Name, &chat.EventID,
+		&squadType, &chat.EventTitle, &eventDate, &chat.EventLocation, &chat.EventImage,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -46,6 +51,7 @@ func (r *chatRepository) GetChatByID(ctx context.Context, id string) (*domain.Ch
 		}
 		return nil, err
 	}
+	applyCrewChatFields(&chat, squadType, eventDate)
 
 	participants, err := r.getChatParticipants(ctx, chat.ID)
 	if err == nil {
@@ -86,9 +92,11 @@ func (r *chatRepository) GetUserChats(ctx context.Context, userID string) ([]dom
 		SELECT c.id, c.type, c.last_message, c.created_at, c.updated_at,
 		(SELECT COUNT(*) FROM messages m LEFT JOIN message_receipts mr ON mr.message_id=m.id AND mr.user_id=$1
 		 WHERE m.chat_id=c.id AND m.sender_id<>$1 AND mr.read_at IS NULL),
-		 COALESCE(s.id::text,''),COALESCE(s.name,''),COALESCE(s.event_id::text,'')
+		 COALESCE(s.id::text,''),COALESCE(s.name,''),COALESCE(s.event_id::text,''),
+		 COALESCE(s.type,''),COALESCE(ev.title,''),ev.date,COALESCE(ev.location,''),COALESCE(ev.cinematic_banner_url,'')
 		FROM chats c
-		LEFT JOIN LATERAL(SELECT id,name,event_id FROM squads WHERE chat_room_id=c.id ORDER BY id LIMIT 1) s ON true
+		LEFT JOIN LATERAL(SELECT id,name,event_id,type FROM squads WHERE chat_room_id=c.id ORDER BY id LIMIT 1) s ON true
+		LEFT JOIN events ev ON ev.id=s.event_id AND s.type='temporary'
 		JOIN chat_participants cp ON c.id = cp.chat_id
 		WHERE cp.user_id = $1
 		ORDER BY c.updated_at DESC
@@ -103,9 +111,13 @@ func (r *chatRepository) GetUserChats(ctx context.Context, userID string) ([]dom
 	ids := make([]string, 0)
 	for rows.Next() {
 		var chat domain.Chat
-		if err := rows.Scan(&chat.ID, &chat.Type, &chat.LastMessage, &chat.CreatedAt, &chat.UpdatedAt, &chat.UnreadCount, &chat.SquadID, &chat.Name, &chat.EventID); err != nil {
+		var squadType string
+		var eventDate sql.NullTime
+		if err := rows.Scan(&chat.ID, &chat.Type, &chat.LastMessage, &chat.CreatedAt, &chat.UpdatedAt, &chat.UnreadCount, &chat.SquadID, &chat.Name, &chat.EventID,
+			&squadType, &chat.EventTitle, &eventDate, &chat.EventLocation, &chat.EventImage); err != nil {
 			return nil, err
 		}
+		applyCrewChatFields(&chat, squadType, eventDate)
 
 		chats = append(chats, chat)
 		ids = append(ids, chat.ID)
@@ -195,4 +207,21 @@ func (r *chatRepository) getChatParticipants(ctx context.Context, chatID string)
 		participants = append(participants, u)
 	}
 	return participants, nil
+}
+
+// applyCrewChatFields deja crew_type solo para crews permanentes/temporales y los datos del evento solo para las
+// temporales (los squads del matcher no cambian su respuesta).
+func applyCrewChatFields(chat *domain.Chat, squadType string, eventDate sql.NullTime) {
+	switch squadType {
+	case domain.CrewTypePermanent, domain.CrewTypeTemporary:
+		chat.CrewType = squadType
+	}
+	if squadType != domain.CrewTypeTemporary {
+		chat.EventTitle, chat.EventLocation, chat.EventImage = "", "", ""
+		return
+	}
+	if eventDate.Valid {
+		date := eventDate.Time
+		chat.EventDate = &date
+	}
 }

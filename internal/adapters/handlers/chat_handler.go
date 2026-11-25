@@ -1,23 +1,43 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/google/uuid"
 	"net/http"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
+	"root-backend-service/internal/services/s3"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type ChatHandler struct {
 	chatService ports.ChatService
+	s3Service   s3.S3Service
 }
 
-func NewChatHandler(chatService ports.ChatService) *ChatHandler {
-	return &ChatHandler{
+// signEventImage firma el flyer de las crews temporales cuando es una clave S3 (igual que en /v1/crews).
+func (h *ChatHandler) signEventImage(ctx context.Context, chat *domain.Chat) {
+	raw := strings.TrimSpace(chat.EventImage)
+	if h.s3Service == nil || raw == "" || strings.HasPrefix(raw, "http") {
+		return
+	}
+	if url, err := h.s3Service.GenerateViewUrl(ctx, raw, 7*24*time.Hour); err == nil {
+		chat.EventImage = url
+	}
+}
+
+func NewChatHandler(chatService ports.ChatService, s3Services ...s3.S3Service) *ChatHandler {
+	h := &ChatHandler{
 		chatService: chatService,
 	}
+	if len(s3Services) > 0 {
+		h.s3Service = s3Services[0]
+	}
+	return h
 }
 
 func (h *ChatHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +150,9 @@ func (h *ChatHandler) GetUserChats(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	for i := range chats {
+		h.signEventImage(r.Context(), &chats[i])
 	}
 
 	respondWithJSON(w, http.StatusOK, chats)

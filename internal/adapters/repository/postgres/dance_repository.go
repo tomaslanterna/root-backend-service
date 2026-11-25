@@ -22,6 +22,16 @@ func NewDanceRepository(db *sql.DB) ports.DanceRepository {
 	return &danceRepository{db: db}
 }
 
+// crewStepsScope define qué sesiones de baile suman para un integrante de una crew (alias: s=squads,
+// sm=squad_members, ds=dance_sessions):
+//   - crew permanente: solo las sesiones que EMPEZARON después de que la persona se unió a esa crew. No cuenta el
+//     histórico anterior. Una sesión es una fila por (persona, evento) que acumula pasos, así que si la persona
+//     ya estaba bailando cuando se unió, esa sesión no suma (no se pueden separar los pasos de antes y de después).
+//   - crew temporal: únicamente las sesiones de su evento.
+const crewStepsScope = `(CASE WHEN s.type = 'temporary'
+		THEN ds.event_id = s.event_id
+		ELSE ds.start_time >= (COALESCE(sm.joined_at, s.created_at, TIMESTAMP '-infinity') AT TIME ZONE 'UTC') END)`
+
 func (r *danceRepository) InitSchema(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -348,17 +358,22 @@ func (r *danceRepository) AddCrewMembers(ctx context.Context, squadID string, me
 	defer tx.Rollback()
 
 	var chatRoomID sql.NullString
+	var crewType string
 	err = tx.QueryRowContext(ctx, `
-		SELECT COALESCE(chat_room_id::text, '')
+		SELECT COALESCE(chat_room_id::text, ''), COALESCE(type, 'permanent')
 		FROM squads
 		WHERE id = $1::uuid
 		LIMIT 1
-	`, squadID).Scan(&chatRoomID)
+	`, squadID).Scan(&chatRoomID, &crewType)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
 		}
 		return nil, fmt.Errorf("finding crew to add members: %w", err)
+	}
+	// Las crews temporales solo admiten gente con solicitudes que aprueba el host.
+	if crewType == domain.CrewTypeTemporary {
+		return nil, domain.ErrTempCrewManaged
 	}
 
 	now := time.Now().UTC()
@@ -416,6 +431,13 @@ func (r *danceRepository) AddCrewEvent(ctx context.Context, squadID, eventID, us
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM squads WHERE id = $1::uuid)`, squadID).Scan(&exists); err != nil || !exists {
 		return sql.ErrNoRows
 	}
+	var temporary bool
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(type, 'permanent') = 'temporary' FROM squads WHERE id = $1::uuid`, squadID).Scan(&temporary); err != nil {
+		return err
+	}
+	if temporary {
+		return domain.ErrTempCrewManaged
+	}
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1::uuid)`, eventID).Scan(&exists); err != nil || !exists {
 		return sql.ErrNoRows
 	}
@@ -444,8 +466,9 @@ func (r *danceRepository) GetCrewLeaderboardAllTime(ctx context.Context, squadID
 		SELECT u.id, u.name, u.username, u.avatar_url, COALESCE(sm.role, 'member') as role,
 		       COALESCE(SUM(ds.steps_count), 0) as total_steps
 		FROM squad_members sm
+		JOIN squads s ON s.id = sm.squad_id
 		JOIN users u ON sm.user_id = u.id
-		LEFT JOIN dance_sessions ds ON u.id = ds.user_id
+		LEFT JOIN dance_sessions ds ON u.id = ds.user_id AND ` + crewStepsScope + `
 		WHERE sm.squad_id = $1::uuid
 		GROUP BY u.id, u.name, u.username, u.avatar_url, sm.role, sm.joined_at
 		ORDER BY total_steps DESC, sm.joined_at ASC
@@ -488,8 +511,9 @@ func (r *danceRepository) GetCrewLeaderboardByEvent(ctx context.Context, squadID
 		SELECT u.id, u.name, u.username, u.avatar_url, COALESCE(sm.role, 'member') as role,
 		       COALESCE(SUM(ds.steps_count), 0) as total_steps
 		FROM squad_members sm
+		JOIN squads s ON s.id = sm.squad_id
 		JOIN users u ON sm.user_id = u.id
-		LEFT JOIN dance_sessions ds ON u.id = ds.user_id AND ds.event_id = $2::uuid
+		LEFT JOIN dance_sessions ds ON u.id = ds.user_id AND ds.event_id = $2::uuid AND ` + crewStepsScope + `
 		WHERE sm.squad_id = $1::uuid
 		GROUP BY u.id, u.name, u.username, u.avatar_url, sm.role, sm.joined_at
 		ORDER BY total_steps DESC, sm.joined_at ASC
@@ -529,7 +553,8 @@ func (r *danceRepository) GetUserCrews(ctx context.Context, userID string) ([]ma
 		WITH crew_steps AS (
 			SELECT sm.squad_id, sm.user_id, COALESCE(SUM(ds.steps_count), 0) as total_steps
 			FROM squad_members sm
-			LEFT JOIN dance_sessions ds ON ds.user_id = sm.user_id
+			JOIN squads s ON s.id = sm.squad_id
+			LEFT JOIN dance_sessions ds ON ds.user_id = sm.user_id AND ` + crewStepsScope + `
 			GROUP BY sm.squad_id, sm.user_id
 		),
 		crew_ranks AS (
@@ -613,7 +638,8 @@ func (r *danceRepository) GetAllCrews(ctx context.Context) ([]map[string]interfa
 		WITH crew_steps AS (
 			SELECT sm.squad_id, sm.user_id, COALESCE(SUM(ds.steps_count), 0) as total_steps
 			FROM squad_members sm
-			LEFT JOIN dance_sessions ds ON ds.user_id = sm.user_id
+			JOIN squads s ON s.id = sm.squad_id
+			LEFT JOIN dance_sessions ds ON ds.user_id = sm.user_id AND ` + crewStepsScope + `
 			GROUP BY sm.squad_id, sm.user_id
 		),
 		crew_totals AS (

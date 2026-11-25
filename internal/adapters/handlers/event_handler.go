@@ -31,6 +31,17 @@ type EventHandler struct {
 	eventService ports.EventService
 	s3Service    s3.S3Service
 	userRepo     ports.UserRepository
+	tempCrews    ports.TempCrewService
+}
+
+// SetTempCrewService habilita el resumen de crews temporales en el detalle del evento (`tempCrews`).
+func (h *EventHandler) SetTempCrewService(svc ports.TempCrewService) { h.tempCrews = svc }
+
+// eventDetailResponse es el evento más el resumen de crews temporales. Solo lo usa el detalle: el listado y los
+// destacados siguen devolviendo domain.Event sin `tempCrews`.
+type eventDetailResponse struct {
+	*domain.Event
+	TempCrews *domain.TempCrewsEventSummary `json:"tempCrews,omitempty"`
 }
 
 func NewEventHandler(eventService ports.EventService, s3Service s3.S3Service, userRepo ports.UserRepository) *EventHandler {
@@ -193,17 +204,60 @@ func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	currentUserID, _ := r.Context().Value(UserIDKey).(string)
+
+	// Con sesión, la respuesta incluye datos de quien consulta (viewerCrewId, viewerRequestStatus…): nada de caché
+	// compartida. Sin sesión es igual para todos.
+	w.Header().Add("Vary", "Authorization")
+	if currentUserID != "" {
+		w.Header().Set("Cache-Control", "private, no-store")
+	}
+
+	// Las crews temporales se piden en paralelo, en una consulta aparte (un JOIN repetiría la fila del evento por
+	// cada crew). Si fallan, el evento se devuelve igual sin `tempCrews` y el front usa /temp-crews.
+	crewsCtx, cancelCrews := context.WithCancel(r.Context())
+	defer cancelCrews()
+	var crewsDone chan *domain.TempCrewsEventSummary
+	if h.tempCrews != nil {
+		crewsDone = make(chan *domain.TempCrewsEventSummary, 1)
+		go func() {
+			summary, err := h.tempCrews.EventSummary(crewsCtx, eventID, currentUserID)
+			if err != nil {
+				if crewsCtx.Err() == nil {
+					log.Printf("event %s: temporary crews summary unavailable: %v", eventID, err)
+				}
+				summary = nil
+			}
+			crewsDone <- summary
+		}()
+	}
+	waitCrews := func() *domain.TempCrewsEventSummary {
+		if crewsDone == nil {
+			return nil
+		}
+		return <-crewsDone
+	}
+
 	event, err := h.eventService.GetEventByID(r.Context(), eventID, currentUserID)
 	if errors.Is(err, sql.ErrNoRows) {
+		cancelCrews()
+		waitCrews()
 		respondWithError(w, http.StatusNotFound, "Evento no encontrado")
 		return
 	}
 	if err != nil {
+		cancelCrews()
+		waitCrews()
 		respondWithError(w, http.StatusInternalServerError, "Error obteniendo el evento")
 		return
 	}
 	h.enrichEventImage(r.Context(), event)
-	respondWithJSON(w, http.StatusOK, event)
+	response := eventDetailResponse{Event: event, TempCrews: waitCrews()}
+	if response.TempCrews != nil {
+		for i := range response.TempCrews.Preview {
+			signBannerRef(r.Context(), h.s3Service, &response.TempCrews.Preview[i].Event)
+		}
+	}
+	respondWithJSON(w, http.StatusOK, response)
 }
 
 func (h *EventHandler) RSVPEvent(w http.ResponseWriter, r *http.Request) {

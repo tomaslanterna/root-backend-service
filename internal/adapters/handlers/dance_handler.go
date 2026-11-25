@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 	"root-backend-service/internal/services/s3"
 )
@@ -18,6 +19,18 @@ import (
 type DanceHandler struct {
 	danceService ports.DanceService
 	s3Service    s3.S3Service
+	tempCrews    ports.TempCrewService
+}
+
+// SetTempCrewService habilita el soporte de crews temporales en los endpoints compartidos de /v1/crews.
+func (h *DanceHandler) SetTempCrewService(svc ports.TempCrewService) { h.tempCrews = svc }
+
+// tempCrewDetail devuelve los datos de la crew si es temporal, o nil si es permanente.
+func (h *DanceHandler) tempCrewDetail(ctx context.Context, squadID, viewerID string) (*domain.TempCrewDetail, error) {
+	if h.tempCrews == nil {
+		return nil, nil
+	}
+	return h.tempCrews.Detail(ctx, squadID, viewerID)
 }
 
 func NewDanceHandler(svc ports.DanceService, s3Services ...s3.S3Service) *DanceHandler {
@@ -201,6 +214,10 @@ func (h *DanceHandler) AddCrewMembers(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, http.StatusNotFound, "Crew not found")
 			return
 		}
+		if errors.Is(err, domain.ErrTempCrewManaged) {
+			respondWithError(w, http.StatusConflict, "Las crews temporales solo admiten gente con solicitudes")
+			return
+		}
 		respondWithError(w, http.StatusInternalServerError, "Failed to add members to crew")
 		return
 	}
@@ -241,6 +258,10 @@ func (h *DanceHandler) AddCrewEvent(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, http.StatusNotFound, "Crew or event not found")
 			return
 		}
+		if errors.Is(err, domain.ErrTempCrewManaged) {
+			respondWithError(w, http.StatusConflict, "Las crews temporales están atadas a un solo evento")
+			return
+		}
 		respondWithError(w, http.StatusInternalServerError, "Failed to associate event with crew")
 		return
 	}
@@ -260,6 +281,16 @@ func (h *DanceHandler) GetCrewLeaderboards(w http.ResponseWriter, r *http.Reques
 	var eventIDPtr *string
 	if eventID != "" {
 		eventIDPtr = &eventID
+	}
+
+	// En una crew temporal el ranking es solo para integrantes.
+	viewerID, _ := r.Context().Value(UserIDKey).(string)
+	if detail, err := h.tempCrewDetail(r.Context(), squadID, viewerID); err != nil {
+		writeTempCrewError(w, err)
+		return
+	} else if detail != nil && detail.ViewerRole == nil {
+		respondWithError(w, http.StatusForbidden, "Solo los integrantes pueden ver el ranking")
+		return
 	}
 
 	response, err := h.danceService.GetCrewLeaderboards(r.Context(), squadID, eventIDPtr)
@@ -352,13 +383,28 @@ func (h *DanceHandler) UpdateCrewVisibility(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var body struct {
-		IsPublic *bool `json:"isPublic"`
+		IsPublic    *bool `json:"isPublic"`
+		IsAdmitting *bool `json:"isAdmitting"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.IsPublic == nil {
-		respondWithError(w, http.StatusBadRequest, "isPublic is required")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || (body.IsPublic == nil && body.IsAdmitting == nil) {
+		respondWithError(w, http.StatusBadRequest, "isPublic or isAdmitting is required")
 		return
 	}
 	squadID := strings.TrimSpace(chi.URLParam(r, "id"))
+	// Crews temporales: PATCH abre o cierra las solicitudes. Solo el host.
+	if body.IsAdmitting != nil && h.tempCrews != nil {
+		admitting, err := h.tempCrews.SetAdmitting(r.Context(), squadID, userID, *body.IsAdmitting)
+		if err != nil {
+			writeTempCrewError(w, err)
+			return
+		}
+		respondWithJSON(w, http.StatusOK, map[string]interface{}{"isAdmitting": admitting})
+		return
+	}
+	if body.IsPublic == nil {
+		respondWithError(w, http.StatusBadRequest, "isPublic is required")
+		return
+	}
 	err := h.danceService.SetCrewVisibility(r.Context(), squadID, userID, *body.IsPublic)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -437,6 +483,21 @@ func (h *DanceHandler) GetCrewByID(w http.ResponseWriter, r *http.Request) {
 	viewerID, _ := r.Context().Value(UserIDKey).(string)
 	if member, err := h.danceService.IsCrewMember(r.Context(), squadID, viewerID); err != nil || !member {
 		hideInviteCode(crew)
+	}
+	// Crew temporal: se descubre desde el evento, así que la ve cualquiera con sesión (también después de que
+	// termina: sigue en la app, solo que ya no admite gente). Nunca expone código de invitación: el ingreso es
+	// siempre con aprobación.
+	if detail, err := h.tempCrewDetail(r.Context(), squadID, viewerID); err != nil {
+		writeTempCrewError(w, err)
+		return
+	} else if detail != nil {
+		if viewerID == "" {
+			respondWithError(w, http.StatusUnauthorized, "User not authenticated")
+			return
+		}
+		hideInviteCode(crew)
+		signBannerRef(r.Context(), h.s3Service, &detail.Event)
+		crew["tempCrew"] = detail
 	}
 	if evs, ok := crew["events"].([]map[string]interface{}); ok {
 		h.enrichCrewEventImages(r.Context(), evs)

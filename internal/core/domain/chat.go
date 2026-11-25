@@ -20,6 +20,12 @@ type Chat struct {
 	SquadID     string    `json:"squad_id,omitempty"`
 	Name        string    `json:"name,omitempty"`
 	EventID     string    `json:"event_id,omitempty"`
+	// Solo chats de crews: "permanent" o "temporary". Los datos del evento vienen únicamente en las temporales.
+	CrewType      string     `json:"crew_type,omitempty"`
+	EventTitle    string     `json:"event_title,omitempty"`
+	EventDate     *time.Time `json:"event_date,omitempty"`
+	EventLocation string     `json:"event_location,omitempty"`
+	EventImage    string     `json:"event_image,omitempty"`
 
 	Participants []User `json:"participants,omitempty"`
 }

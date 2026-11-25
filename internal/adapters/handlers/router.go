@@ -27,6 +27,7 @@ type RouterConfig struct {
 	AIHandler           *AIHandler
 	MatchHandler        *MatchHandler
 	DanceHandler        *DanceHandler
+	TempCrewHandler     *TempCrewHandler
 	ChatRealtime        *ChatRealtime
 	PushHandler         *PushHandler
 	NotificationHandler *NotificationHandler
@@ -156,6 +157,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(OptionalAuthMiddleware).Get("/events/{id}", cfg.EventHandler.GetEventByID)
 		r.With(AuthMiddleware).Post("/events/{id}/rsvp", cfg.EventHandler.RSVPEvent)
 		r.With(AuthMiddleware).Get("/events/{id}/attendees/followed", cfg.EventHandler.GetFollowedGoingAttendees)
+		// Crews temporales: atadas a un evento, se entra con solicitud que aprueba quien la creó.
+		if cfg.TempCrewHandler != nil {
+			r.With(OptionalAuthMiddleware).Get("/events/{id}/temp-crews", cfg.TempCrewHandler.ListForEvent)
+			r.With(AuthMiddleware).Post("/events/{id}/temp-crews", cfg.TempCrewHandler.Create)
+			r.With(AuthMiddleware).Get("/users/me/temp-crews", cfg.TempCrewHandler.Mine)
+			r.With(AuthMiddleware).Get("/temp-crews/discover", cfg.TempCrewHandler.Discover)
+		}
 		r.Route("/events/{id}/comments", func(r chi.Router) {
 			r.Get("/", cfg.EventHandler.GetEventComments)
 			r.With(AuthMiddleware).Post("/", cfg.EventHandler.CreateEventComment)
@@ -259,6 +267,13 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.With(OptionalAuthMiddleware).Get("/{id}/rankings", cfg.DanceHandler.GetCrewLeaderboards)
 			r.With(OptionalAuthMiddleware).Get("/{id}/events", cfg.DanceHandler.GetCrewEvents)
 			r.With(AuthMiddleware).Post("/{id}/events", cfg.DanceHandler.AddCrewEvent)
+			if cfg.TempCrewHandler != nil {
+				r.With(AuthMiddleware).Post("/{id}/join-requests", cfg.TempCrewHandler.RequestJoin)
+				r.With(AuthMiddleware).Delete("/{id}/join-requests/me", cfg.TempCrewHandler.CancelMine)
+				r.With(AuthMiddleware).Get("/{id}/join-requests", cfg.TempCrewHandler.ListRequests)
+				r.With(AuthMiddleware).Post("/{id}/join-requests/{requestId}/accept", cfg.TempCrewHandler.Accept)
+				r.With(AuthMiddleware).Post("/{id}/join-requests/{requestId}/reject", cfg.TempCrewHandler.Reject)
+			}
 		})
 	})
 
