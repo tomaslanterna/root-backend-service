@@ -71,6 +71,34 @@ func (s *NotificationService) ScheduleEventReminders(ctx context.Context) error 
 	return s.repo.ScheduleEventReminders(ctx)
 }
 
+// ErrInvalidBirthdayDate indica que no se pasó la fecha para buscar cumpleaños.
+var ErrInvalidBirthdayDate = errors.New("birthday date is required")
+
+// Uruguay no usa horario de verano desde 2015: si el host no trae la base de
+// zonas horarias, UTC-3 fijo da la misma fecha.
+var montevideoLocation = func() *time.Location {
+	if location, err := time.LoadLocation("America/Montevideo"); err == nil {
+		return location
+	}
+	return time.FixedZone("UYT", -3*60*60)
+}()
+
+// MontevideoDate devuelve la fecha de calendario de Montevideo de now, a medianoche de Montevideo.
+func MontevideoDate(now time.Time) time.Time {
+	year, month, day := now.In(montevideoLocation).Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, montevideoLocation)
+}
+
+// ScheduleBirthdays agenda el saludo de quienes cumplen en today (fecha de
+// Montevideo). El worker lo llama una vez por día; igual es idempotente (dedupe birthday:{año}).
+func (s *NotificationService) ScheduleBirthdays(ctx context.Context, today time.Time) error {
+	if today.IsZero() {
+		return fmt.Errorf("schedule birthdays: %w", ErrInvalidBirthdayDate)
+	}
+	year, month, day := today.Date()
+	return s.repo.ScheduleBirthdays(ctx, time.Date(year, month, day, 0, 0, 0, 0, time.UTC))
+}
+
 func (s *NotificationService) Prune(ctx context.Context) error { return s.repo.Prune(ctx) }
 
 func (s *NotificationService) ProcessPending(ctx context.Context) error {

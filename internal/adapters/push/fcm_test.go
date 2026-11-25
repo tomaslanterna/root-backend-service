@@ -44,6 +44,45 @@ func TestFCMPayload(t *testing.T) {
 	}
 }
 
+func TestFCMGenericNotificationPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Message struct {
+				Notification map[string]string
+				Data         map[string]string
+				Android      struct{ Priority, TTL string }
+			}
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		m := body.Message
+		want := map[string]string{
+			"type": "user.birthday", "category": "account", "notification_id": "notification", "recipient_id": "recipient",
+			"title": "¡Feliz cumpleaños, @pocho!", "body": "Desde root te deseamos lo mejor 🎉", "username": "pocho",
+		}
+		for key, value := range want {
+			if m.Data[key] != value {
+				t.Errorf("data[%q] = %q, want %q", key, m.Data[key], value)
+			}
+		}
+		// Solo data: la app Android dibuja la notificación (un bloque notification saltearía su servicio).
+		if m.Notification != nil || m.Android.Priority != "HIGH" || m.Android.TTL != "604800s" {
+			t.Errorf("unexpected payload: %+v", body)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	job := domain.PushJob{
+		Token: "device-token", UserID: "recipient", NotificationID: "notification", NotificationType: "user.birthday",
+		Category: domain.NotificationAccount, Title: "¡Feliz cumpleaños, @pocho!", Body: "Desde root te deseamos lo mejor 🎉",
+		Data: map[string]string{"username": "pocho"},
+	}
+	if err := (&FCM{client: server.Client(), endpoint: server.URL}).Send(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNotificationPreview(t *testing.T) {
 	for _, test := range []struct {
 		name, text, want string
