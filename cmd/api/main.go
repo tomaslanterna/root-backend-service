@@ -318,9 +318,18 @@ func main() {
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo, sessionCache)
 	// Sign in with Apple: APPLE_CLIENT_IDS (bundle id y, si hay login web, el Services ID), APPLE_TEAM_ID,
-	// APPLE_KEY_ID y APPLE_PRIVATE_KEY (contenido del .p8, para revocar el acceso al borrar la cuenta).
+	// APPLE_KEY_ID y la clave .p8 (APPLE_PRIVATE_KEY_PATH o APPLE_PRIVATE_KEY), para revocar el acceso al borrar la cuenta.
+	// La clave puede ir en un archivo (APPLE_PRIVATE_KEY_PATH, como APNS_KEY_PATH) o pegada en APPLE_PRIVATE_KEY.
+	applePrivateKey := os.Getenv("APPLE_PRIVATE_KEY")
+	if path := strings.TrimSpace(os.Getenv("APPLE_PRIVATE_KEY_PATH")); path != "" {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			log.Fatalf("Could not read APPLE_PRIVATE_KEY_PATH: %v", err)
+		}
+		applePrivateKey = string(content)
+	}
 	appleClient, err := auth.NewAppleClient(auth.AppleConfig{
-		TeamID: os.Getenv("APPLE_TEAM_ID"), KeyID: os.Getenv("APPLE_KEY_ID"), PrivateKey: os.Getenv("APPLE_PRIVATE_KEY"),
+		TeamID: os.Getenv("APPLE_TEAM_ID"), KeyID: os.Getenv("APPLE_KEY_ID"), PrivateKey: applePrivateKey,
 		ClientIDs: strings.Split(os.Getenv("APPLE_CLIENT_IDS"), ","),
 	})
 	if err != nil {

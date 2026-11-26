@@ -130,6 +130,8 @@ func (h *AuthHandler) AppleLogin(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, domain.ErrAppleNotConfigured):
 		respondWithError(w, http.StatusServiceUnavailable, "El inicio de sesión con Apple no está disponible")
 	case errors.Is(err, domain.ErrInvalidAppleToken):
+		// El motivo (audiencia, nonce, vencido, firma) sirve para diagnosticar; nunca incluye el token.
+		log.Printf("apple login rejected: %v", err)
 		respondWithError(w, http.StatusUnauthorized, "No pudimos verificar tu cuenta de Apple")
 	case errors.Is(err, domain.ErrAccountUnavailable):
 		respondWithError(w, http.StatusUnauthorized, "Esta cuenta ya no está disponible")

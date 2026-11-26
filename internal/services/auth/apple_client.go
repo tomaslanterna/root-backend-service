@@ -144,10 +144,10 @@ func (c *AppleClient) Verify(ctx context.Context, identityToken, nonceHash strin
 		}
 	}
 	if audience == "" || claims.Subject == "" {
-		return domain.AppleClaims{}, fmt.Errorf("%w: unexpected audience", domain.ErrInvalidAppleToken)
+		return domain.AppleClaims{}, fmt.Errorf("%w: unexpected audience %v (accepted: APPLE_CLIENT_IDS)", domain.ErrInvalidAppleToken, []string(claims.Audience))
 	}
 	if nonceHash == "" || subtle.ConstantTimeCompare([]byte(claims.Nonce), []byte(nonceHash)) != 1 {
-		return domain.AppleClaims{}, fmt.Errorf("%w: nonce mismatch", domain.ErrInvalidAppleToken)
+		return domain.AppleClaims{}, fmt.Errorf("%w: nonce mismatch (token has nonce: %t)", domain.ErrInvalidAppleToken, claims.Nonce != "")
 	}
 	return domain.AppleClaims{
 		Subject: claims.Subject, Audience: audience, Email: strings.TrimSpace(claims.Email),
