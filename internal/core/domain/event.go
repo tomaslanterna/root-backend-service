@@ -8,11 +8,12 @@ import (
 var ErrContentPolicyViolation = errors.New("este mensaje infringe nuestras políticas de violencia")
 
 type TicketTier struct {
-	Name         string  `json:"name"`
-	Price        float64 `json:"price"`
-	Currency     string  `json:"currency"`
-	SoldOut      bool    `json:"soldOut"`
-	FewRemaining bool    `json:"fewRemaining"`
+	Name string `json:"name"`
+	// Price es nil en los lotes que se muestran sin precio (por ejemplo, los canjes de bancos).
+	Price        *float64 `json:"price"`
+	Currency     string   `json:"currency"`
+	SoldOut      bool     `json:"soldOut"`
+	FewRemaining bool     `json:"fewRemaining"`
 }
 
 type Event struct {

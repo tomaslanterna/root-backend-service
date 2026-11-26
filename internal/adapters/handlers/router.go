@@ -32,6 +32,7 @@ type RouterConfig struct {
 	PushHandler         *PushHandler
 	NotificationHandler *NotificationHandler
 	PasswordRecovery    *PasswordRecoveryHandler
+	Moderation          *ModerationHandler
 	ValidateSession     ports.SessionValidator
 }
 
@@ -90,6 +91,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		if cfg.ChatRealtime != nil {
 			r.Get("/chats/ws", cfg.ChatRealtime.ServeHTTP)
 		}
+		// Baja de cuenta, bloqueos y denuncias (requisitos de la App Store para contenido de usuarios).
+		if cfg.Moderation != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(AuthMiddleware)
+				r.Delete("/users/me", cfg.Moderation.DeleteMe)
+				r.Get("/users/me/blocks", cfg.Moderation.ListBlocks)
+				r.Post("/users/{username}/block", cfg.Moderation.Block)
+				r.Delete("/users/{username}/block", cfg.Moderation.Unblock)
+				r.Post("/reports", cfg.Moderation.CreateReport)
+			})
+		}
 		// Búsqueda
 		r.With(OptionalAuthMiddleware).Post("/search", cfg.SearchHandler.Search)
 
@@ -139,7 +151,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(AuthMiddleware).Post("/posts/image", cfg.PostHandler.UploadImage)
 		r.With(AuthMiddleware).Post("/posts/{id}/like", cfg.PostHandler.LikePost)
 		r.Route("/posts/{id}/comments", func(r chi.Router) {
-			r.Get("/", cfg.PostHandler.GetPostComments)
+			// Sesión opcional: con sesión se ocultan los comentarios de personas bloqueadas.
+			r.With(OptionalAuthMiddleware).Get("/", cfg.PostHandler.GetPostComments)
 			r.With(AuthMiddleware).Post("/", cfg.PostHandler.CommentPost)
 		})
 
@@ -166,7 +179,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.With(AuthMiddleware).Get("/temp-crews/discover", cfg.TempCrewHandler.Discover)
 		}
 		r.Route("/events/{id}/comments", func(r chi.Router) {
-			r.Get("/", cfg.EventHandler.GetEventComments)
+			r.With(OptionalAuthMiddleware).Get("/", cfg.EventHandler.GetEventComments)
 			r.With(AuthMiddleware).Post("/", cfg.EventHandler.CreateEventComment)
 		})
 		r.Get("/events/{id}/tickets", cfg.EventHandler.GetEventTickets)
@@ -210,11 +223,15 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(AuthMiddleware).Post("/events/{eventId}/swipes", cfg.MatchHandler.HandleSwipe)
 
 		// 6. KYC (Verificación de Identidad)
-		r.Post("/kyc/sessions", cfg.KycHandler.CreateSession)
-		r.Post("/kyc/sessions/{id}/document", cfg.KycHandler.UploadDocument)
-		r.Post("/kyc/sessions/{id}/face", cfg.KycHandler.UploadFace)
-		r.Post("/kyc/sessions/{id}/submit", cfg.KycHandler.SubmitSession)
-		r.Get("/kyc/sessions/{id}/status", cfg.KycHandler.GetStatus)
+		// Requieren sesión: el dueño de la sesión KYC sale del JWT, nunca del body.
+		r.Group(func(r chi.Router) {
+			r.Use(AuthMiddleware)
+			r.Post("/kyc/sessions", cfg.KycHandler.CreateSession)
+			r.Post("/kyc/sessions/{id}/document", cfg.KycHandler.UploadDocument)
+			r.Post("/kyc/sessions/{id}/face", cfg.KycHandler.UploadFace)
+			r.Post("/kyc/sessions/{id}/submit", cfg.KycHandler.SubmitSession)
+			r.Get("/kyc/sessions/{id}/status", cfg.KycHandler.GetStatus)
+		})
 
 		// 7. Autenticados Generales (Encuestas)
 		r.Group(func(r chi.Router) {

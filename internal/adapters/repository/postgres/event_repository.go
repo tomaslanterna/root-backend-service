@@ -389,13 +389,14 @@ func (r *EventRepository) GetFollowedGoingAttendees(ctx context.Context, eventID
 	return attendees, total, nil
 }
 
-func (r *EventRepository) GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error) {
+func (r *EventRepository) GetEventComments(ctx context.Context, eventID, viewerID string, limit, offset int) ([]domain.EventComment, int, error) {
 	if err := ensureEventExists(ctx, r.db, eventID); err != nil {
 		return nil, 0, err
 	}
 
 	var total int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM comments WHERE target_type = 'event' AND target_id::text = $1`, eventID).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM comments c WHERE c.target_type = 'event' AND c.target_id::text = $1
+		AND `+notBlockedSQL("c.author_id", "$2"), eventID, viewerID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("counting event comments: %w", err)
 	}
 
@@ -404,8 +405,8 @@ func (r *EventRepository) GetEventComments(ctx context.Context, eventID string, 
 			COALESCE(u.name, 'Usuario'), COALESCE(u.username, 'usuario'),
 			u.avatar_url, c.content, COALESCE(c.timestamp, NOW())
 		FROM comments c LEFT JOIN users u ON c.author_id = u.id
-		WHERE c.target_type = 'event' AND c.target_id::text = $1
-		ORDER BY c.timestamp DESC, c.id DESC LIMIT $2 OFFSET $3`, eventID, limit, offset)
+		WHERE c.target_type = 'event' AND c.target_id::text = $1 AND `+notBlockedSQL("c.author_id", "$4")+`
+		ORDER BY c.timestamp DESC, c.id DESC LIMIT $2 OFFSET $3`, eventID, limit, offset, viewerID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("querying event comments: %w", err)
 	}
@@ -555,7 +556,8 @@ func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
 		if len(ticketTiers) > 0 {
 			var parsedTiers []domain.TicketTier
 			if err := json.Unmarshal(ticketTiers, &parsedTiers); err == nil {
-				event.TicketTiers = parsedTiers
+				// Lo guardado antes de esta regla puede tener cortesías o canjes con precio.
+				event.TicketTiers = domain.CleanTicketTiers(parsedTiers)
 			}
 		}
 		if ticketSource.Valid {
@@ -663,24 +665,38 @@ func (r *EventRepository) UpdateEventBanner(ctx context.Context, id string, bann
 	return nil
 }
 
+// updateTicketInfoSQL guarda lo que encontró Gemini en la ticketera. Si esta vez no encontró lotes pero el evento
+// ya tenía, se conservan los últimos conocidos (y su fuente): una respuesta vacía de Gemini no borra entradas.
+// Igual se actualiza ticket_info_fetched_at para no volver a consultar antes de la próxima hora.
+// $1 = lotes (JSON array), $2 = fuente, $3 = id del evento.
+const updateTicketInfoSQL = `
+	UPDATE events
+	SET ticket_tiers = CASE
+			WHEN jsonb_array_length($1::jsonb) > 0 THEN $1::jsonb
+			WHEN jsonb_typeof(ticket_tiers) = 'array' THEN
+				CASE WHEN jsonb_array_length(ticket_tiers) > 0 THEN ticket_tiers ELSE $1::jsonb END
+			ELSE $1::jsonb
+		END,
+		ticket_source = CASE
+			WHEN jsonb_array_length($1::jsonb) > 0 THEN $2
+			ELSE COALESCE(NULLIF(ticket_source, ''), $2)
+		END,
+		ticket_info_fetched_at = NOW()
+	WHERE id::text = $3`
+
 func (r *EventRepository) UpdateEventTicketInfo(ctx context.Context, id string, tiers []domain.TicketTier, source *string) error {
-	var tiersJSON []byte
-	var err error
+	// Sin cortesías y con los canjes sin precio. Si solo había cortesías, cuenta como "no encontró lotes".
+	tiers = domain.CleanTicketTiers(tiers)
+	tiersJSON := []byte("[]")
 	if len(tiers) > 0 {
+		var err error
 		tiersJSON, err = json.Marshal(tiers)
 		if err != nil {
 			return fmt.Errorf("marshaling ticket tiers: %w", err)
 		}
-	} else {
-		// If empty, we can store an empty array
-		tiersJSON = []byte("[]")
 	}
 
-	result, err := r.db.ExecContext(ctx, `
-		UPDATE events 
-		SET ticket_tiers = $1, ticket_source = $2, ticket_info_fetched_at = NOW()
-		WHERE id::text = $3
-	`, tiersJSON, source, id)
+	result, err := r.db.ExecContext(ctx, updateTicketInfoSQL, string(tiersJSON), source, id)
 	if err != nil {
 		return fmt.Errorf("updating event ticket info: %w", err)
 	}

@@ -22,11 +22,11 @@ func (r *postRepository) GetGlobalPosts(ctx context.Context, limit, offset int) 
 		SELECT 
 			p.id, p.author_id, p.event_id, p.community_id, p.title, p.content, p.long_content, 
 			p.header_image_url, p.timestamp, p.is_featured,
-			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
+			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false), COALESCE(u.username, '')
 		FROM posts p
 		LEFT JOIN users u ON p.author_id = u.id
 		-- Los perfiles privados no aparecen en el feed global: sus posts los ven sus seguidores.
-		WHERE p.community_id IS NULL AND NOT COALESCE(u.is_private, false)
+		WHERE p.community_id IS NULL AND p.hidden_at IS NULL AND NOT COALESCE(u.is_private, false)
 		ORDER BY p.timestamp DESC
 		LIMIT $1 OFFSET $2
 	`
@@ -42,7 +42,7 @@ func (r *postRepository) GetGlobalPosts(ctx context.Context, limit, offset int) 
 		err := rows.Scan(
 			&p.ID, &p.AuthorID, &p.EventID, &p.CommunityID, &p.Title,
 			&p.Content, &p.LongContent, &p.HeaderImageURL, &p.Timestamp, &p.IsFeatured,
-			&p.AuthorName, &p.AuthorAvatar, &p.IsVerified,
+			&p.AuthorName, &p.AuthorAvatar, &p.IsVerified, &p.AuthorUsername,
 		)
 		if err != nil {
 			return nil, err
@@ -60,10 +60,10 @@ func (r *postRepository) GetFeaturedPosts(ctx context.Context, limit, offset int
 		SELECT 
 			p.id, p.author_id, p.event_id, p.community_id, p.title, p.content, p.long_content, 
 			p.header_image_url, p.timestamp, p.is_featured,
-			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
+			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false), COALESCE(u.username, '')
 		FROM posts p
 		LEFT JOIN users u ON p.author_id = u.id
-		WHERE p.is_featured = TRUE AND p.community_id IS NULL AND NOT COALESCE(u.is_private, false)
+		WHERE p.is_featured = TRUE AND p.community_id IS NULL AND p.hidden_at IS NULL AND NOT COALESCE(u.is_private, false)
 		ORDER BY p.timestamp DESC
 		LIMIT $1 OFFSET $2
 	`
@@ -79,7 +79,7 @@ func (r *postRepository) GetFeaturedPosts(ctx context.Context, limit, offset int
 		err := rows.Scan(
 			&p.ID, &p.AuthorID, &p.EventID, &p.CommunityID, &p.Title,
 			&p.Content, &p.LongContent, &p.HeaderImageURL, &p.Timestamp, &p.IsFeatured,
-			&p.AuthorName, &p.AuthorAvatar, &p.IsVerified,
+			&p.AuthorName, &p.AuthorAvatar, &p.IsVerified, &p.AuthorUsername,
 		)
 		if err != nil {
 			return nil, err
@@ -97,11 +97,11 @@ func (r *postRepository) GetFollowingPosts(ctx context.Context, userID string, l
 		SELECT 
 			p.id, p.author_id, p.event_id, p.community_id, p.title, p.content, p.long_content, 
 			p.header_image_url, p.timestamp, p.is_featured,
-			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
+			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false), COALESCE(u.username, '')
 		FROM posts p
 		LEFT JOIN users u ON p.author_id = u.id
 		JOIN users viewer ON viewer.id::text = $1
-		WHERE p.author_id::text = ANY(COALESCE(viewer.following, '{}'::text[]))
+		WHERE p.author_id::text = ANY(COALESCE(viewer.following, '{}'::text[])) AND p.hidden_at IS NULL
 		ORDER BY p.timestamp DESC
 		LIMIT $2 OFFSET $3
 	`
@@ -117,7 +117,7 @@ func (r *postRepository) GetFollowingPosts(ctx context.Context, userID string, l
 		err := rows.Scan(
 			&p.ID, &p.AuthorID, &p.EventID, &p.CommunityID, &p.Title,
 			&p.Content, &p.LongContent, &p.HeaderImageURL, &p.Timestamp, &p.IsFeatured,
-			&p.AuthorName, &p.AuthorAvatar, &p.IsVerified,
+			&p.AuthorName, &p.AuthorAvatar, &p.IsVerified, &p.AuthorUsername,
 		)
 		if err != nil {
 			return nil, err
@@ -137,10 +137,10 @@ func (r *postRepository) GetUserPosts(ctx context.Context, authorID string, limi
 		SELECT
 			p.id, p.author_id, p.event_id, p.community_id, p.title, p.content, p.long_content,
 			p.header_image_url, p.timestamp, p.is_featured,
-			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
+			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false), COALESCE(u.username, '')
 		FROM posts p
 		JOIN users u ON p.author_id = u.id
-		WHERE p.author_id::text = $1 AND p.community_id IS NULL
+		WHERE p.author_id::text = $1 AND p.community_id IS NULL AND p.hidden_at IS NULL
 		ORDER BY p.timestamp DESC
 		LIMIT $2 OFFSET $3
 	`, authorID, limit, offset)
@@ -155,7 +155,7 @@ func (r *postRepository) GetUserPosts(ctx context.Context, authorID string, limi
 		if err := rows.Scan(
 			&p.ID, &p.AuthorID, &p.EventID, &p.CommunityID, &p.Title,
 			&p.Content, &p.LongContent, &p.HeaderImageURL, &p.Timestamp, &p.IsFeatured,
-			&p.AuthorName, &p.AuthorAvatar, &p.IsVerified,
+			&p.AuthorName, &p.AuthorAvatar, &p.IsVerified, &p.AuthorUsername,
 		); err != nil {
 			return nil, err
 		}
@@ -170,18 +170,18 @@ func (r *postRepository) GetPostByID(ctx context.Context, id string, currentUser
 		SELECT 
 			p.id, p.author_id, p.event_id, p.community_id, p.title, p.content, p.long_content, 
 			p.header_image_url, p.timestamp, p.is_featured,
-			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false),
+			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false), COALESCE(u.username, ''),
 			COALESCE((SELECT COUNT(*) FROM post_likes WHERE post_id = p.id), 0) AS likes_count,
 			EXISTS(SELECT 1 FROM post_likes WHERE post_id = p.id AND user_id::text = $2) AS is_liked
 		FROM posts p
 		LEFT JOIN users u ON p.author_id = u.id
-		WHERE p.id = $1
+		WHERE p.id = $1 AND p.hidden_at IS NULL AND ` + notBlockedSQL("p.author_id", "$2") + `
 	`
 	var p domain.Post
 	err := r.db.QueryRowContext(ctx, query, id, currentUserID).Scan(
 		&p.ID, &p.AuthorID, &p.EventID, &p.CommunityID, &p.Title,
 		&p.Content, &p.LongContent, &p.HeaderImageURL, &p.Timestamp, &p.IsFeatured,
-		&p.AuthorName, &p.AuthorAvatar, &p.IsVerified,
+		&p.AuthorName, &p.AuthorAvatar, &p.IsVerified, &p.AuthorUsername,
 		&p.LikesCount, &p.IsLiked,
 	)
 	if err != nil {
@@ -236,17 +236,17 @@ func (r *postRepository) ToggleLike(ctx context.Context, postID, userID string) 
 
 func (r *postRepository) GetCommunityPosts(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error) {
 	var total int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM posts WHERE community_id::text = $1`, communityID).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM posts WHERE community_id::text = $1 AND hidden_at IS NULL`, communityID).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count community announcements: %w", err)
 	}
 
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT p.id, p.author_id, p.event_id, p.community_id, p.title, p.content,
 			p.long_content, p.header_image_url, p.timestamp, p.is_featured, p.is_pinned,
-			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false)
+			COALESCE(u.name, ''), COALESCE(u.avatar_url, ''), COALESCE(u.is_kyc_verified, false), COALESCE(u.username, '')
 		FROM posts p
 		LEFT JOIN users u ON p.author_id = u.id
-		WHERE p.community_id::text = $1
+		WHERE p.community_id::text = $1 AND p.hidden_at IS NULL
 		ORDER BY p.is_pinned DESC, p.timestamp DESC, p.id DESC
 		LIMIT $2 OFFSET $3`, communityID, limit, offset)
 	if err != nil {
@@ -260,7 +260,7 @@ func (r *postRepository) GetCommunityPosts(ctx context.Context, communityID stri
 		if err := rows.Scan(
 			&post.ID, &post.AuthorID, &post.EventID, &post.CommunityID, &post.Title,
 			&post.Content, &post.LongContent, &post.HeaderImageURL, &post.Timestamp,
-			&post.IsFeatured, &post.IsPinned, &post.AuthorName, &post.AuthorAvatar, &post.IsVerified,
+			&post.IsFeatured, &post.IsPinned, &post.AuthorName, &post.AuthorAvatar, &post.IsVerified, &post.AuthorUsername,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan community announcement: %w", err)
 		}
@@ -273,9 +273,10 @@ func (r *postRepository) GetCommunityPosts(ctx context.Context, communityID stri
 	return posts, total, nil
 }
 
-func (r *postRepository) GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error) {
+func (r *postRepository) GetPostComments(ctx context.Context, postID, viewerID string, limit, offset int) ([]domain.EventComment, int, error) {
 	var total int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM comments WHERE target_type = 'post' AND target_id::text = $1`, postID).Scan(&total); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM comments c WHERE c.target_type = 'post' AND c.target_id::text = $1
+		AND `+notBlockedSQL("c.author_id", "$2"), postID, viewerID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -284,8 +285,8 @@ func (r *postRepository) GetPostComments(ctx context.Context, postID string, lim
 			COALESCE(u.name, 'Usuario'), COALESCE(u.username, 'usuario'),
 			u.avatar_url, c.content, COALESCE(c.timestamp, NOW())
 		FROM comments c LEFT JOIN users u ON c.author_id = u.id
-		WHERE c.target_type = 'post' AND c.target_id::text = $1
-		ORDER BY c.timestamp DESC, c.id DESC LIMIT $2 OFFSET $3`, postID, limit, offset)
+		WHERE c.target_type = 'post' AND c.target_id::text = $1 AND `+notBlockedSQL("c.author_id", "$4")+`
+		ORDER BY c.timestamp DESC, c.id DESC LIMIT $2 OFFSET $3`, postID, limit, offset, viewerID)
 	if err != nil {
 		return nil, 0, err
 	}

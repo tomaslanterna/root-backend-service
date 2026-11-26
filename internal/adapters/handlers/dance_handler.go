@@ -126,6 +126,10 @@ func (h *DanceHandler) CreatePermanentCrew(w http.ResponseWriter, r *http.Reques
 		EventID:   eventID,
 		EventIDs:  eventIDs,
 	})
+	if errors.Is(err, domain.ErrContentPolicyViolation) {
+		respondWithContentPolicy(w)
+		return
+	}
 	if err != nil {
 		log.Printf("Error creating permanent crew for user %s: %v", userID, err)
 		respondWithError(w, http.StatusInternalServerError, "Failed to create crew")

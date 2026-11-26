@@ -35,20 +35,44 @@ func NewKycHandler(s3Service s3service.S3Service, kycProvider kycservice.KycProv
 	return handler
 }
 
-type CreateSessionRequest struct {
-	UserID string `json:"userId"`
+// kycUserID devuelve el usuario autenticado (lo pone AuthMiddleware). Responde 401 si no hay.
+func kycUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	userID, _ := r.Context().Value(UserIDKey).(string)
+	if userID == "" {
+		respondWithJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return "", false
+	}
+	return userID, true
 }
 
-// CreateSession initializes a new KYC session
+// ownedSession carga la sesión KYC de la URL solo si pertenece al usuario autenticado. Una sesión ajena
+// responde 404 igual que una inexistente, para no revelar qué IDs existen.
+func (h *KycHandler) ownedSession(w http.ResponseWriter, r *http.Request) (*domain.KycSession, bool) {
+	userID, ok := kycUserID(w, r)
+	if !ok {
+		return nil, false
+	}
+	sessionID := chi.URLParam(r, "id")
+	if sessionID == "" {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "session id is required"})
+		return nil, false
+	}
+	session, err := h.repo.GetSessionByID(r.Context(), sessionID)
+	if err != nil || session == nil || session.UserID != userID {
+		respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "Session not found"})
+		return nil, false
+	}
+	return session, true
+}
+
+// CreateSession initializes a new KYC session for the authenticated user. Any userId in the body is ignored.
 func (h *KycHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
-	var req CreateSessionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID == "" {
-		// Fallback to a mock/default if not provided, for backwards compatibility
-		req.UserID = "11111111-1111-1111-1111-111111111111"
+	userID, ok := kycUserID(w, r)
+	if !ok {
+		return
 	}
 
 	sessionID := fmt.Sprintf("kyc_sess_%d", time.Now().UnixNano())
-	userID := req.UserID
 
 	// 1. Check if user already has an active or approved session
 	lastSession, err := h.repo.GetLastSessionByUserID(r.Context(), userID)
@@ -96,21 +120,14 @@ func (h *KycHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 
 // UploadDocument handles the upload of the ID card images
 func (h *KycHandler) UploadDocument(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseMultipartForm(10 << 20)
-	if err != nil {
+	session, ok := h.ownedSession(w, r)
+	if !ok {
+		return
+	}
+	sessionID := session.ID
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Max file size is 10MB"})
-		return
-	}
-
-	sessionID := chi.URLParam(r, "id")
-	if sessionID == "" {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "session id is required"})
-		return
-	}
-
-	session, err := h.repo.GetSessionByID(r.Context(), sessionID)
-	if err != nil {
-		respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "Session not found"})
 		return
 	}
 
@@ -158,21 +175,14 @@ func (h *KycHandler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 
 // UploadFace handles the upload of the selfie/liveness video
 func (h *KycHandler) UploadFace(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseMultipartForm(10 << 20)
-	if err != nil {
+	session, ok := h.ownedSession(w, r)
+	if !ok {
+		return
+	}
+	sessionID := session.ID
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "Max file size is 10MB"})
-		return
-	}
-
-	sessionID := chi.URLParam(r, "id")
-	if sessionID == "" {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "session id is required"})
-		return
-	}
-
-	session, err := h.repo.GetSessionByID(r.Context(), sessionID)
-	if err != nil {
-		respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "Session not found"})
 		return
 	}
 
@@ -206,17 +216,11 @@ func (h *KycHandler) UploadFace(w http.ResponseWriter, r *http.Request) {
 
 // SubmitSession triggers the evaluation
 func (h *KycHandler) SubmitSession(w http.ResponseWriter, r *http.Request) {
-	sessionID := chi.URLParam(r, "id")
-	if sessionID == "" {
-		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "session id is required"})
+	session, ok := h.ownedSession(w, r)
+	if !ok {
 		return
 	}
-
-	session, err := h.repo.GetSessionByID(r.Context(), sessionID)
-	if err != nil {
-		respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "Session not found"})
-		return
-	}
+	sessionID := session.ID
 
 	session.Status = "PROCESSING"
 	h.repo.UpdateSession(r.Context(), session)
@@ -282,11 +286,8 @@ func (h *KycHandler) SubmitSession(w http.ResponseWriter, r *http.Request) {
 
 // GetStatus returns the current status of the KYC session
 func (h *KycHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
-	sessionID := chi.URLParam(r, "id")
-
-	session, err := h.repo.GetSessionByID(r.Context(), sessionID)
-	if err != nil {
-		respondWithJSON(w, http.StatusNotFound, map[string]string{"error": "Session not found"})
+	session, ok := h.ownedSession(w, r)
+	if !ok {
 		return
 	}
 

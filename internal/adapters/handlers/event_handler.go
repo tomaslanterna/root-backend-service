@@ -377,7 +377,8 @@ func (h *EventHandler) GetEventComments(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	comments, total, err := h.eventService.GetEventComments(r.Context(), chi.URLParam(r, "id"), limit, offset)
+	viewerID, _ := r.Context().Value(UserIDKey).(string)
+	comments, total, err := h.eventService.GetEventComments(r.Context(), chi.URLParam(r, "id"), viewerID, limit, offset)
 	if errors.Is(err, sql.ErrNoRows) {
 		respondWithError(w, http.StatusNotFound, "Evento no encontrado")
 		return

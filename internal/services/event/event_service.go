@@ -99,8 +99,8 @@ func (s *EventService) GetFollowedGoingAttendees(ctx context.Context, eventID st
 	return s.eventRepo.GetFollowedGoingAttendees(ctx, eventID, currentUserID, limit, offset)
 }
 
-func (s *EventService) GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error) {
-	return s.eventRepo.GetEventComments(ctx, eventID, limit, offset)
+func (s *EventService) GetEventComments(ctx context.Context, eventID, viewerID string, limit, offset int) ([]domain.EventComment, int, error) {
+	return s.eventRepo.GetEventComments(ctx, eventID, viewerID, limit, offset)
 }
 
 func (s *EventService) CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error) {

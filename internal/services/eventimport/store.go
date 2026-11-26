@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+
+	"root-backend-service/internal/core/domain"
 )
 
 // Store is the database side of the importer.
@@ -115,6 +117,10 @@ func (s *SQLStore) Insert(ctx context.Context, ev NewEvent) (string, error) {
 		}
 		tiers = string(raw)
 		for _, t := range ev.Tiers {
+			// El precio "desde" no cuenta cortesías ni canjes: no son precios de venta (si no, el evento sale "Gratis").
+			if domain.IsCourtesyTier(t.Name) || domain.IsExchangeTier(t.Name) {
+				continue
+			}
 			if !t.SoldOut && (price == nil || t.Price < price.(float64)) {
 				price = t.Price
 			}

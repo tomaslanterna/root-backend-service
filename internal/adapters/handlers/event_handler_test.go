@@ -67,7 +67,7 @@ func (s *eventServiceStub) GetFollowedGoingAttendees(context.Context, string, st
 	return []domain.Attendee{}, 0, nil
 }
 
-func (s *eventServiceStub) GetEventComments(context.Context, string, int, int) ([]domain.EventComment, int, error) {
+func (s *eventServiceStub) GetEventComments(context.Context, string, string, int, int) ([]domain.EventComment, int, error) {
 	return []domain.EventComment{}, 0, nil
 }
 

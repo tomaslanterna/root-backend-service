@@ -25,6 +25,8 @@ type UserRepository interface {
 	HasFollowRequest(ctx context.Context, requesterID, targetID string) (bool, error)
 	ListFollowRequests(ctx context.Context, targetID string) ([]domain.FollowListUser, error)
 	UpdateUserKycStatus(ctx context.Context, userID string, isVerified bool, country string) error
+	// AcceptTerms registra que aceptó la versión indicada de los Términos (no pisa una aceptación de esa misma versión).
+	AcceptTerms(ctx context.Context, userID, version string) error
 }
 
 type KycRepository interface {
@@ -69,7 +71,7 @@ type EventRepository interface {
 	SearchEvents(ctx context.Context, query string) ([]domain.Event, error)
 	GetUserEvents(ctx context.Context, username string) ([]domain.Event, error)
 	GetFollowedGoingAttendees(ctx context.Context, eventID string, currentUserID string, limit, offset int) ([]domain.Attendee, int, error)
-	GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error)
+	GetEventComments(ctx context.Context, eventID, viewerID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error)
 	GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error)
 	UpdateEventTicketInfo(ctx context.Context, id string, tiers []domain.TicketTier, source *string) error
@@ -95,7 +97,7 @@ type PostRepository interface {
 	ToggleLike(ctx context.Context, postID, userID string) (liked bool, count int, err error)
 
 	// Comments
-	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
+	GetPostComments(ctx context.Context, postID, viewerID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
 }
 

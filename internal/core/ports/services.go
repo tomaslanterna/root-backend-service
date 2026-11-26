@@ -10,7 +10,8 @@ import (
 
 type AuthService interface {
 	Login(ctx context.Context, email, password string) (string, *domain.User, error)
-	Register(ctx context.Context, name, username, email, password, role string, dob *string, documentID *string, country *string) (*domain.User, error)
+	// Register crea una cuenta con rol USER; termsVersion es la versión de los Términos que aceptó.
+	Register(ctx context.Context, name, username, email, password, termsVersion string, dob *string, documentID *string, country *string) (*domain.User, error)
 	GoogleLogin(ctx context.Context, idToken string) (string, *domain.User, error)
 }
 
@@ -31,6 +32,10 @@ type UserService interface {
 	UpdateAvatar(ctx context.Context, userID, avatar string) (*domain.User, error)
 	GetInterests(ctx context.Context, userID string) (genres []string, answered bool, err error)
 	SetInterests(ctx context.Context, userID string, genres []string) ([]string, error)
+	// AcceptTerms registra la aceptación de la versión vigente de los Términos.
+	AcceptTerms(ctx context.Context, userID string) error
+	// BlockState dice si viewerID bloqueó a targetID y si targetID bloqueó a viewerID (false, false sin sesión).
+	BlockState(ctx context.Context, viewerID, targetID string) (blockedByViewer, blockedViewer bool, err error)
 }
 
 type SearchService interface {
@@ -64,7 +69,8 @@ type EventService interface {
 	RSVPEvent(ctx context.Context, userID, eventID, status string) (goingCount int, notGoingCount int, userRsvp string, err error)
 	ClearRSVP(ctx context.Context, userID, eventID string) (goingCount int, notGoingCount int, err error)
 	GetFollowedGoingAttendees(ctx context.Context, eventID string, currentUserID string, limit, offset int) ([]domain.Attendee, int, error)
-	GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error)
+	// GetEventComments lista los comentarios; con viewerID se ocultan los de personas bloqueadas.
+	GetEventComments(ctx context.Context, eventID, viewerID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error)
 	GetPendingSurveys(ctx context.Context, userID string) ([]domain.Event, error)
 	GetUserEvents(ctx context.Context, username string) ([]domain.Event, error)
@@ -85,7 +91,8 @@ type PostService interface {
 	CreatePost(ctx context.Context, post *domain.Post) error
 	GetCommunityAnnouncements(ctx context.Context, communityID string, limit, offset int) ([]domain.Post, int, error)
 	CreateCommunityAnnouncement(ctx context.Context, communityID, authorID string, post *domain.Post) (*domain.Post, error)
-	GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error)
+	// GetPostComments lista los comentarios; con viewerID se ocultan los de personas bloqueadas.
+	GetPostComments(ctx context.Context, postID, viewerID string, limit, offset int) ([]domain.EventComment, int, error)
 	CreatePostComment(ctx context.Context, postID string, authorID string, content string) (*domain.EventComment, error)
 	ToggleLike(ctx context.Context, postID, userID string) (liked bool, count int, err error)
 }

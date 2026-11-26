@@ -17,10 +17,12 @@ type Post struct {
 	Timestamp      time.Time `json:"timestamp"`
 	IsFeatured     bool      `json:"isFeatured"`
 	// Campos extra que pueden venir hidratados
-	AuthorName   string   `json:"authorName"`
-	AuthorAvatar string   `json:"authorAvatar"`
-	IsVerified   bool     `json:"isVerified"`
-	LikesCount   int      `json:"likesCount"`
-	IsLiked      bool     `json:"isLiked"`
-	Tags         []string `json:"tags"`
+	AuthorName string `json:"authorName"`
+	// AuthorUsername permite abrir el perfil del autor o bloquearlo desde el post.
+	AuthorUsername string   `json:"authorUsername,omitempty"`
+	AuthorAvatar   string   `json:"authorAvatar"`
+	IsVerified     bool     `json:"isVerified"`
+	LikesCount     int      `json:"likesCount"`
+	IsLiked        bool     `json:"isLiked"`
+	Tags           []string `json:"tags"`
 }

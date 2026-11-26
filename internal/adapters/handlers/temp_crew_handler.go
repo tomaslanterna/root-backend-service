@@ -44,6 +44,8 @@ func writeTempCrewError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.As(err, &validation):
 		status, code, message = http.StatusBadRequest, "invalid_request", validation.Message
+	case errors.Is(err, domain.ErrContentPolicyViolation):
+		status, code, message = http.StatusUnprocessableEntity, "content_policy", "Este contenido infringe nuestras normas de la comunidad"
 	case errors.Is(err, domain.ErrInvalidID):
 		status, code, message = http.StatusBadRequest, "invalid_id", "Invalid id"
 	case errors.Is(err, domain.ErrTempCrewNotFound):

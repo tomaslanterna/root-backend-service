@@ -22,6 +22,23 @@ type S3Service interface {
 	GetObjectLimited(ctx context.Context, key string, maxBytes int64) ([]byte, error)
 }
 
+// DeleteObject borra el archivo; borrar uno que no existe no es un error. No forma parte de S3Service: lo usa
+// solo la purga de cuentas eliminadas (ports.ObjectDeleter).
+func (s *s3ServiceImpl) DeleteObject(ctx context.Context, key string) error {
+	key = strings.TrimLeft(strings.TrimSpace(key), "/")
+	if key == "" {
+		return fmt.Errorf("key cannot be empty")
+	}
+	if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucketName),
+		Key:    aws.String(key),
+	}); err != nil {
+		return fmt.Errorf("failed to delete object from S3: %w", err)
+	}
+	s.urlCache.Delete(key)
+	return nil
+}
+
 type cachedURL struct {
 	url       string
 	expiresAt time.Time

@@ -38,7 +38,7 @@ func (s *postRepositoryForCommunityStub) CreatePost(_ context.Context, post *dom
 	s.created = &copy
 	return nil
 }
-func (s *postRepositoryForCommunityStub) GetPostComments(context.Context, string, int, int) ([]domain.EventComment, int, error) {
+func (s *postRepositoryForCommunityStub) GetPostComments(context.Context, string, string, int, int) ([]domain.EventComment, int, error) {
 	return nil, 0, nil
 }
 func (s *postRepositoryForCommunityStub) CreatePostComment(context.Context, string, string, string) (*domain.EventComment, error) {

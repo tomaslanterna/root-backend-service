@@ -135,13 +135,25 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Bloqueos: si el perfil bloqueó a quien mira, para esa persona no existe; si quien mira lo bloqueó, ve
+	// nombre y foto con isBlocked para poder desbloquearlo, pero no el contenido.
+	isBlocked, blockedViewer, err := h.userService.BlockState(r.Context(), currentUserID, user.ID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "No se pudo cargar el perfil")
+		return
+	}
+	if blockedViewer {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+
 	h.resolveAvatar(r, user.AvatarURL)
 	followStatus, err := h.userService.FollowStatus(r.Context(), currentUserID, user)
 	if err != nil {
 		followStatus = domain.FollowStatusNone
 	}
 	// Perfil privado: quien no lo sigue ve nombre, foto y cantidades, pero no el contenido.
-	canView := !user.IsPrivate || currentUserID == user.ID || followStatus == domain.FollowStatusFollowing
+	canView := !isBlocked && (!user.IsPrivate || currentUserID == user.ID || followStatus == domain.FollowStatusFollowing)
 
 	// Only the owner sees their private fields (email, dob, document, country).
 	var body interface{} = user.PublicProfile()
@@ -153,6 +165,7 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		"isFollowing":    isFollowing,
 		"followStatus":   followStatus,
 		"canViewContent": canView,
+		"isBlocked":      isBlocked,
 	}
 	respondWithJSON(w, http.StatusOK, response)
 }
@@ -358,6 +371,10 @@ func (h *UserHandler) FollowUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	status, err := h.userService.FollowUser(r.Context(), currentUserID, targetUsername)
+	if errors.Is(err, domain.ErrBlocked) {
+		respondWithBlocked(w)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -406,6 +423,8 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		Dob        string `json:"dob"`
 		DocumentID string `json:"documentId"`
 		Country    string `json:"country"`
+		// AcceptedTerms: true cuando completa el perfil aceptando los Términos y la Política de privacidad.
+		AcceptedTerms bool `json:"acceptedTerms"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -413,10 +432,25 @@ func (h *UserHandler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.AcceptedTerms {
+		if err := h.userService.AcceptTerms(r.Context(), currentUserID); err != nil {
+			if errors.Is(err, domain.ErrUserNotFound) {
+				respondWithError(w, http.StatusNotFound, "user not found")
+				return
+			}
+			respondWithError(w, http.StatusInternalServerError, "No se pudo guardar la aceptación de los términos")
+			return
+		}
+	}
+
 	user, err := h.userService.UpdateUser(r.Context(), currentUserID, req.Name, req.Username, req.Dob, req.DocumentID, req.Country)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidFullName) {
 			respondWithJSON(w, http.StatusBadRequest, map[string]string{"message": "Ingresá tu nombre y apellido."})
+			return
+		}
+		if errors.Is(err, domain.ErrContentPolicyViolation) {
+			respondWithContentPolicy(w)
 			return
 		}
 		if err.Error() == "username is already taken" {

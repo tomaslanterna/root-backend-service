@@ -30,3 +30,16 @@ func respondWithError(w http.ResponseWriter, code int, message string) {
 		Message: message,
 	})
 }
+
+// respondWithBlocked responde 403 {"error":"blocked"}: hay un bloqueo entre las dos personas.
+func respondWithBlocked(w http.ResponseWriter) {
+	respondWithJSON(w, http.StatusForbidden, map[string]string{
+		"error":   "blocked",
+		"message": "No podés interactuar con esta cuenta.",
+	})
+}
+
+// respondWithContentPolicy responde 422 cuando el moderador de contenido rechazó el texto.
+func respondWithContentPolicy(w http.ResponseWriter) {
+	respondWithError(w, http.StatusUnprocessableEntity, "Este contenido infringe nuestras normas de la comunidad")
+}

@@ -37,8 +37,19 @@ type User struct {
 	Country       *string   `json:"country"`
 	// IsPrivate: solo quienes lo siguen ven sus posts, insignias, eventos y listas; seguir requiere aceptar.
 	IsPrivate     bool      `json:"isPrivate"`
+	// TermsAcceptedAt: cuándo aceptó los Términos y la Política de privacidad (nil si todavía no).
+	TermsAcceptedAt *time.Time `json:"termsAcceptedAt"`
+	TermsVersion    *string    `json:"-"`
+	// DeletedAt / SuspendedAt: la cuenta fue eliminada por su dueño o suspendida por moderación; no puede entrar.
+	DeletedAt   *time.Time `json:"-"`
+	SuspendedAt *time.Time `json:"-"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+// Unavailable indica si la cuenta fue eliminada o suspendida.
+func (u *User) Unavailable() bool {
+	return u != nil && (u.DeletedAt != nil || u.SuspendedAt != nil)
 }
 
 // FollowListUser es una fila de la lista de seguidores o seguidos de un perfil.

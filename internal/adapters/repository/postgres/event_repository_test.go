@@ -229,7 +229,7 @@ func TestFollowedAttendeesAreFilteredInSQL(t *testing.T) {
 
 func TestEventCommentsArePaginatedNewestFirstAndCanBeCreated(t *testing.T) {
 	repository, state := newEventRepositoryForTest(t)
-	comments, total, err := repository.GetEventComments(context.Background(), "event-1", 20, 0)
+	comments, total, err := repository.GetEventComments(context.Background(), "event-1", "", 20, 0)
 	if err != nil {
 		t.Fatalf("getting comments: %v", err)
 	}

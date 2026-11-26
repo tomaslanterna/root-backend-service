@@ -15,6 +15,28 @@ import (
 type chatService struct {
 	chatRepo    ports.ChatRepository
 	messageRepo ports.MessageRepository
+	blocks      ports.BlockRepository
+}
+
+// UseChatBlocks impide abrir chats directos y escribir en ellos cuando hay un bloqueo entre las dos personas.
+func UseChatBlocks(service ports.ChatService, blocks ports.BlockRepository) {
+	if s, ok := service.(*chatService); ok {
+		s.blocks = blocks
+	}
+}
+
+func (s *chatService) blockedEitherWay(ctx context.Context, userID, otherID string) error {
+	if s.blocks == nil || otherID == "" {
+		return nil
+	}
+	byUser, byOther, err := s.blocks.BlockState(ctx, userID, otherID)
+	if err != nil {
+		return err
+	}
+	if byUser || byOther {
+		return domain.ErrBlocked
+	}
+	return nil
 }
 
 func NewChatService(chatRepo ports.ChatRepository, messageRepo ports.MessageRepository) ports.ChatService {
@@ -62,8 +84,19 @@ func (s *chatService) SendMessage(ctx context.Context, chatID, currentUserID, co
 		}
 		id = parsed.String()
 	}
-	if _, err := s.getAuthorizedChat(ctx, chatID, currentUserID); err != nil {
+	chat, err := s.getAuthorizedChat(ctx, chatID, currentUserID)
+	if err != nil {
 		return nil, err
+	}
+	// En un chat directo, un bloqueo (en cualquier sentido) impide escribir.
+	if chat.Type == domain.ChatTypeDirect {
+		for _, participant := range chat.Participants {
+			if participant.ID != currentUserID {
+				if err := s.blockedEitherWay(ctx, currentUserID, participant.ID); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
 
 	msg := &domain.Message{
@@ -138,6 +171,9 @@ func (s *chatService) getAuthorizedChat(ctx context.Context, chatID, currentUser
 func (s *chatService) GetOrCreateDirectChat(ctx context.Context, currentUserID, targetUserID string) (*domain.Chat, error) {
 	if currentUserID == targetUserID {
 		return nil, errors.New("cannot create a direct chat with yourself")
+	}
+	if err := s.blockedEitherWay(ctx, currentUserID, targetUserID); err != nil {
+		return nil, err
 	}
 
 	// 1. Check if chat already exists
