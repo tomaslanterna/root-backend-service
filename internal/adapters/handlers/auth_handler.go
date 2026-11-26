@@ -117,3 +117,26 @@ func (h *AuthHandler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	respondWithJSON(w, http.StatusOK, response)
 }
+
+// AppleLogin: POST /v1/auth/apple con {identityToken, authorizationCode, nonce, givenName, familyName}.
+func (h *AuthHandler) AppleLogin(w http.ResponseWriter, r *http.Request) {
+	var req domain.AppleLoginInput
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	token, user, err := h.authService.AppleLogin(r.Context(), req)
+	switch {
+	case errors.Is(err, domain.ErrAppleNotConfigured):
+		respondWithError(w, http.StatusServiceUnavailable, "El inicio de sesión con Apple no está disponible")
+	case errors.Is(err, domain.ErrInvalidAppleToken):
+		respondWithError(w, http.StatusUnauthorized, "No pudimos verificar tu cuenta de Apple")
+	case errors.Is(err, domain.ErrAccountUnavailable):
+		respondWithError(w, http.StatusUnauthorized, "Esta cuenta ya no está disponible")
+	case err != nil:
+		log.Printf("apple login: %v", err)
+		respondWithError(w, http.StatusInternalServerError, "No pudimos iniciar sesión con Apple. Intentá nuevamente.")
+	default:
+		respondWithJSON(w, http.StatusOK, map[string]interface{}{"token": token, "user": user})
+	}
+}

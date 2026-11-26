@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/google/uuid"
@@ -17,6 +18,8 @@ import (
 // AccountService da de baja la cuenta al instante y purga sus datos cuando vence la retención.
 type AccountService struct {
 	repo ports.AccountRepository
+	// beforeDelete corre antes de la baja (revocar Sign in with Apple). Si falla, se loguea y la baja sigue igual.
+	beforeDelete func(ctx context.Context, userID string) error
 	// invalidateSession saca la sesión del caché para que el JWT deje de valer enseguida.
 	invalidateSession func(userID string)
 	files             ports.ObjectDeleter
@@ -26,9 +29,19 @@ func NewAccountService(repo ports.AccountRepository, invalidateSession func(user
 	return &AccountService{repo: repo, invalidateSession: invalidateSession, files: files}
 }
 
+// BeforeDelete registra un paso que corre antes de dar de baja la cuenta (por ejemplo, revocar Sign in with Apple).
+func (s *AccountService) BeforeDelete(step func(ctx context.Context, userID string) error) {
+	s.beforeDelete = step
+}
+
 func (s *AccountService) DeleteAccount(ctx context.Context, userID string) error {
 	if strings.TrimSpace(userID) == "" {
 		return domain.ErrUserNotFound
+	}
+	if s.beforeDelete != nil {
+		if err := s.beforeDelete(ctx, userID); err != nil {
+			log.Printf("account %s: before delete: %v", userID, err)
+		}
 	}
 	if err := s.repo.DeleteAccount(ctx, userID, domain.AccountDeletionRetention); err != nil {
 		return err

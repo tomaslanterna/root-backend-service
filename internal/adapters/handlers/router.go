@@ -109,6 +109,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Post("/auth/login", cfg.AuthHandler.Login)
 		r.Post("/auth/register", cfg.AuthHandler.Register)
 		r.Post("/auth/google", cfg.AuthHandler.GoogleLogin)
+		r.Post("/auth/apple", cfg.AuthHandler.AppleLogin)
 		if cfg.PasswordRecovery != nil {
 			r.Post("/auth/forgot-password", cfg.PasswordRecovery.Request)
 			r.Post("/auth/reset-password", cfg.PasswordRecovery.Reset)

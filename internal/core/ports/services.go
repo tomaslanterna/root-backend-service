@@ -13,6 +13,8 @@ type AuthService interface {
 	// Register crea una cuenta con rol USER; termsVersion es la versión de los Términos que aceptó.
 	Register(ctx context.Context, name, username, email, password, termsVersion string, dob *string, documentID *string, country *string) (*domain.User, error)
 	GoogleLogin(ctx context.Context, idToken string) (string, *domain.User, error)
+	// AppleLogin entra (o crea la cuenta) con Sign in with Apple.
+	AppleLogin(ctx context.Context, input domain.AppleLoginInput) (string, *domain.User, error)
 }
 
 type UserService interface {

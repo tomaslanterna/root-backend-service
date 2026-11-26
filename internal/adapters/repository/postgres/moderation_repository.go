@@ -364,6 +364,8 @@ func (r *ModerationRepository) DeleteAccount(ctx context.Context, userID string,
 		{`DELETE FROM crew_join_requests WHERE user_id = $1 AND status = 'pending'`, []any{userID}},
 		{`DELETE FROM event_rrpps WHERE user_id = $1`, []any{userID}},
 		{`DELETE FROM community_managers WHERE user_id = $1`, []any{userID}},
+		// Libera el Apple ID: si vuelve a entrar con Apple, se crea una cuenta nueva.
+		{`DELETE FROM apple_identities WHERE user_id = $1`, []any{userID}},
 		{`UPDATE posts SET hidden_at = NOW() WHERE author_id = $1 AND hidden_at IS NULL`, []any{userID}},
 	}
 	for _, statement := range statements {
