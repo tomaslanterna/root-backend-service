@@ -71,6 +71,7 @@ func main() {
 	danceRepo := postgres.NewDanceRepository(db)
 	tempCrewRepo := postgres.NewTempCrewRepository(db)
 	eventRRPPRepo := postgres.NewEventRRPPRepository(db)
+	moderationRepo := postgres.NewModerationRepository(db)
 
 	initSchema := func(initialize func(context.Context) error) error {
 		if !*initializeSchema {
@@ -182,6 +183,26 @@ func main() {
 	if fcmSender != nil || apnsSender != nil {
 		pushSender = pushadapter.NewMultiPushSender(fcmSender, apnsSender)
 	}
+	// Denuncias: cada una se avisa por email a SUPPORT_EMAIL (mismo proveedor que la recuperación de contraseña).
+	var reportNotifier ports.ReportNotifier
+	if notifier, err := emailadapter.NewReportNotifier(emailSender, os.Getenv("SUPPORT_EMAIL")); err != nil {
+		log.Fatalf("Could not configure report notifications: %v", err)
+	} else if notifier != nil {
+		reportNotifier = notifier
+	} else {
+		log.Println("Report emails disabled; configure SUPPORT_EMAIL and an email provider to receive them")
+	}
+	reportService := coreServices.NewReportService(moderationRepo, reportNotifier)
+	// El borrado de archivos de cuentas eliminadas usa S3; sin S3 la purga queda pendiente y se reintenta.
+	accountFiles, filesErr := s3service.NewS3Service(context.Background())
+	if filesErr != nil {
+		log.Printf("Warning: account purge cannot delete files until S3 is available: %v", filesErr)
+	}
+	var accountDeleter ports.ObjectDeleter
+	if deleter, ok := accountFiles.(ports.ObjectDeleter); ok && accountFiles != nil {
+		accountDeleter = deleter
+	}
+	accountService := coreServices.NewAccountService(moderationRepo, sessionCache.Invalidate, accountDeleter)
 	pushService := coreServices.NewPushService(pushRepo, pushSender)
 	notificationService := coreServices.NewNotificationService(notificationRepo, pushRepo, pushSender)
 	pushDone := make(chan struct{})
@@ -198,6 +219,11 @@ func main() {
 		// y así también les llegan a quienes marcan "voy" durante el día. El dedupe evita duplicados.
 		reminderTicker := time.NewTicker(5 * time.Minute)
 		defer reminderTicker.Stop()
+		// Denuncias nuevas: se avisan al soporte cada minuto (las que fallan se reintentan en la próxima vuelta).
+		reportTicker := time.NewTicker(time.Minute)
+		defer reportTicker.Stop()
+		// Cuentas eliminadas: la purga de las que cumplieron 30 días corre una vez por día de Montevideo.
+		var purgedFor time.Time
 		// Cumpleaños: una sola corrida por día de Montevideo (el saludo igual sale a las 10:00). Si falla, se reintenta
 		// en el próximo tick; si el servidor se reinicia, vuelve a correr y el dedupe birthday:{año} evita duplicados.
 		var birthdaysScheduledFor time.Time
@@ -217,7 +243,25 @@ func main() {
 			}
 			birthdaysScheduledFor = today
 		}
+		purgeAccounts := func() {
+			today := coreServices.MontevideoDate(time.Now())
+			if today.Equal(purgedFor) {
+				return
+			}
+			n, err := accountService.PurgeDue(pushCtx)
+			if n > 0 {
+				log.Printf("account purge: %d deleted accounts purged", n)
+			}
+			if err != nil {
+				if pushCtx.Err() == nil {
+					log.Printf("account purge: %v", err)
+				}
+				return
+			}
+			purgedFor = today
+		}
 		scheduleReminders()
+		purgeAccounts()
 		for {
 			select {
 			case <-pushCtx.Done():
@@ -231,6 +275,11 @@ func main() {
 				}
 			case <-reminderTicker.C:
 				scheduleReminders()
+				purgeAccounts()
+			case <-reportTicker.C:
+				if err := reportService.ProcessNotifications(pushCtx); err != nil && pushCtx.Err() == nil {
+					log.Printf("report notifications: %v", err)
+				}
 			case <-pruneTicker.C:
 				if err := pushRepo.Prune(pushCtx); err != nil && pushCtx.Err() == nil {
 					log.Printf("push cleanup: %v", err)
@@ -272,6 +321,9 @@ func main() {
 
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()
 	contentModerator := aiservice.NewGeminiContentModerator()
+	user.UseBlocks(userService, moderationRepo)
+	user.UseModerator(userService, contentModerator)
+	blockService := coreServices.NewBlockService(moderationRepo, userRepo)
 	eventService := eventservice.NewEventService(eventRepo, artistRepo, aiTicketProvider, contentModerator, notificationService)
 	searchService := search.NewSearchService(userRepo, eventRepo, communityRepo)
 	postService := coreServices.NewPostService(postRepo, communityRepo, notificationService)
@@ -283,6 +335,11 @@ func main() {
 	matchService := coreServices.NewMatchService(matchRepo, notificationService)
 	danceService := coreServices.NewDanceService(danceRepo, eventRepo)
 	tempCrewService := coreServices.NewTempCrewService(tempCrewRepo)
+	// Moderación automática (Gemini) en el contenido público. El chat queda cubierto con denuncias y bloqueos.
+	coreServices.UsePostModerator(postService, contentModerator)
+	coreServices.UseTempCrewModerator(tempCrewService, contentModerator)
+	coreServices.UseDanceModerator(danceService, contentModerator)
+	coreServices.UseChatBlocks(chatService, moderationRepo)
 
 	// Inyectar dependencias para KYC
 	s3Service, err := s3service.NewS3Service(context.Background())
@@ -354,6 +411,7 @@ func main() {
 	// 5. Configuración del Router con Chi
 	router := handlers.NewRouter(handlers.RouterConfig{
 		PasswordRecovery:    handlers.NewPasswordRecoveryHandler(recoveryService),
+		Moderation:          handlers.NewModerationHandler(accountService, blockService, reportService, s3Service),
 		ValidateSession:     authService.ValidateSession,
 		AuthHandler:         authHandler,
 		UserHandler:         userHandler,

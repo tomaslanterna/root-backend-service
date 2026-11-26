@@ -13,6 +13,33 @@ type postService struct {
 	postRepo      ports.PostRepository
 	communityRepo ports.CommunityRepository
 	notifications ports.NotificationPublisher
+	moderator     ports.ContentModerationService
+}
+
+// UsePostModerator revisa el texto de posts, anuncios y comentarios antes de guardarlos.
+func UsePostModerator(service ports.PostService, moderator ports.ContentModerationService) {
+	if s, ok := service.(*postService); ok {
+		s.moderator = moderator
+	}
+}
+
+// moderate devuelve domain.ErrContentPolicyViolation si el texto infringe las normas. Sin moderador no revisa.
+func (s *postService) moderate(ctx context.Context, parts ...string) error {
+	if s.moderator == nil {
+		return nil
+	}
+	text := strings.TrimSpace(strings.Join(parts, "\n"))
+	if text == "" {
+		return nil
+	}
+	return s.moderator.ValidateContent(ctx, text)
+}
+
+func titleText(title *string) string {
+	if title == nil {
+		return ""
+	}
+	return *title
 }
 
 func NewPostService(repo ports.PostRepository, communityRepo ports.CommunityRepository, publishers ...ports.NotificationPublisher) ports.PostService {
@@ -127,11 +154,14 @@ func (s *postService) ToggleLike(ctx context.Context, postID, userID string) (bo
 	return liked, count, err
 }
 
-func (s *postService) GetPostComments(ctx context.Context, postID string, limit, offset int) ([]domain.EventComment, int, error) {
-	return s.postRepo.GetPostComments(ctx, postID, limit, offset)
+func (s *postService) GetPostComments(ctx context.Context, postID, viewerID string, limit, offset int) ([]domain.EventComment, int, error) {
+	return s.postRepo.GetPostComments(ctx, postID, viewerID, limit, offset)
 }
 
 func (s *postService) CreatePostComment(ctx context.Context, postID, authorID, content string) (*domain.EventComment, error) {
+	if err := s.moderate(ctx, content); err != nil {
+		return nil, err
+	}
 	comment, err := s.postRepo.CreatePostComment(ctx, postID, authorID, content)
 	if err == nil && comment != nil && s.notifications != nil {
 		_ = s.notifications.NotifyPostComment(ctx, authorID, postID, comment.ID)
@@ -174,6 +204,9 @@ func (s *postService) CreatePost(ctx context.Context, post *domain.Post) error {
 
 	if !hasTitle && !hasContent && !hasImage {
 		return errors.New("post must have a title, content or image")
+	}
+	if err := s.moderate(ctx, titleText(post.Title), post.Content); err != nil {
+		return err
 	}
 	return s.postRepo.CreatePost(ctx, post)
 }
@@ -235,6 +268,9 @@ func (s *postService) CreateCommunityAnnouncement(ctx context.Context, community
 	}
 	if len([]rune(post.Content)) > 2000 {
 		return nil, errors.New("announcement content cannot exceed 2000 characters")
+	}
+	if err := s.moderate(ctx, titleText(post.Title), post.Content); err != nil {
+		return nil, err
 	}
 	if err := s.postRepo.CreatePost(ctx, post); err != nil {
 		return nil, err

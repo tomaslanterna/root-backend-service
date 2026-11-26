@@ -55,7 +55,12 @@ func (s *Transactional) SendPasswordReset(ctx context.Context, recipient, link, 
 	const subject = "Restablecé tu contraseña de Root"
 	text := "Recibimos una solicitud para cambiar tu contraseña de Root.\n\nAbrí este enlace: " + link + "\n\nEl enlace vence a los 30 minutos de solicitarlo y se puede usar una sola vez. Si no lo solicitaste, ignorá este correo."
 	markup := `<h1>Root</h1><p>Recibimos una solicitud para cambiar tu contraseña.</p><p><a href="` + html.EscapeString(link) + `">Restablecer contraseña</a></p><p>El enlace vence a los 30 minutos de solicitarlo y se puede usar una sola vez. Si no lo solicitaste, ignorá este correo.</p>`
-	idempotencyKey := "password-reset-" + deliveryID
+	return s.send(ctx, recipient, subject, text, markup, "password-reset-"+deliveryID)
+}
+
+// send manda un email por el proveedor configurado. idempotencyKey evita duplicados si un worker reintenta.
+// Los errores nunca incluyen el destinatario ni el contenido.
+func (s *Transactional) send(ctx context.Context, recipient, subject, text, markup, idempotencyKey string) error {
 	var payload any
 	if s.provider == "resend" {
 		payload = map[string]any{"from": (&mail.Address{Name: s.name, Address: s.from}).String(), "to": []string{recipient}, "subject": subject, "text": text, "html": markup}
@@ -67,11 +72,11 @@ func (s *Transactional) SendPasswordReset(ctx context.Context, recipient, link, 
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return errors.New("encode recovery email")
+		return errors.New("encode email")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return errors.New("create recovery email request")
+		return errors.New("create email request")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if s.provider == "resend" {
@@ -82,7 +87,7 @@ func (s *Transactional) SendPasswordReset(ctx context.Context, recipient, link, 
 	}
 	response, err := s.client.Do(req)
 	if err != nil {
-		return errors.New("recovery email provider unavailable")
+		return errors.New("email provider unavailable")
 	}
 	defer response.Body.Close()
 	if s.provider == "brevo" && response.StatusCode == http.StatusBadRequest {
@@ -94,20 +99,20 @@ func (s *Transactional) SendPasswordReset(ctx context.Context, recipient, link, 
 			// Same stable key was already accepted; an interrupted worker can confirm it.
 			return nil
 		}
-		return errors.New("recovery email provider rejected the request")
+		return errors.New("email provider rejected the request")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return errors.New("recovery email provider rejected the request")
+		return errors.New("email provider rejected the request")
 	}
 	var receipt struct {
 		ID        string `json:"id"`
 		MessageID string `json:"messageId"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&receipt); err != nil {
-		return errors.New("invalid recovery email receipt")
+		return errors.New("invalid email receipt")
 	}
 	if (s.provider == "resend" && receipt.ID == "") || (s.provider == "brevo" && receipt.MessageID == "") {
-		return errors.New("missing recovery email receipt")
+		return errors.New("missing email receipt")
 	}
 	return nil
 }

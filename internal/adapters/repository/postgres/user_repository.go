@@ -11,6 +11,10 @@ import (
 	"github.com/lib/pq"
 )
 
+// userColumns son las columnas que se leen de users, en el orden que esperan los Scan de este archivo.
+const userColumns = `id, email, password_hash, name, username, role, avatar_url, dob, document_id, followers, following,
+	is_kyc_verified, country, COALESCE(is_private, false), accepted_terms_at, terms_version, deleted_at, suspended_at, created_at, updated_at`
+
 type userRepository struct {
 	db *sql.DB
 }
@@ -21,7 +25,7 @@ func NewUserRepository(db *sql.DB) ports.UserRepository {
 
 func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	query := `
-		SELECT id, email, password_hash, name, username, role, avatar_url, dob, document_id, followers, following, is_kyc_verified, country, COALESCE(is_private, false), created_at, updated_at 
+		SELECT ` + userColumns + ` 
 		FROM users 
 		WHERE email = $1
 	`
@@ -29,7 +33,8 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 	user := &domain.User{}
 	err := r.db.QueryRowContext(ctx, query, email).Scan(
 		&user.ID, &user.Email, &user.PasswordHash, &user.Name, &user.Username,
-		&user.Role, &user.AvatarURL, &user.Dob, &user.DocumentID, pq.Array(&user.Followers), pq.Array(&user.Following), &user.IsKycVerified, &user.Country, &user.IsPrivate, &user.CreatedAt, &user.UpdatedAt,
+		&user.Role, &user.AvatarURL, &user.Dob, &user.DocumentID, pq.Array(&user.Followers), pq.Array(&user.Following), &user.IsKycVerified, &user.Country, &user.IsPrivate,
+		&user.TermsAcceptedAt, &user.TermsVersion, &user.DeletedAt, &user.SuspendedAt, &user.CreatedAt, &user.UpdatedAt,
 	)
 	
 	if err != nil {
@@ -40,15 +45,16 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*dom
 
 func (r *userRepository) GetUserByUsername(ctx context.Context, username string) (*domain.User, error) {
 	query := `
-		SELECT id, email, password_hash, name, username, role, avatar_url, dob, document_id, followers, following, is_kyc_verified, country, COALESCE(is_private, false), created_at, updated_at 
+		SELECT ` + userColumns + ` 
 		FROM users 
-		WHERE username = $1
+		WHERE username = $1 AND deleted_at IS NULL
 	`
 	
 	user := &domain.User{}
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
 		&user.ID, &user.Email, &user.PasswordHash, &user.Name, &user.Username,
-		&user.Role, &user.AvatarURL, &user.Dob, &user.DocumentID, pq.Array(&user.Followers), pq.Array(&user.Following), &user.IsKycVerified, &user.Country, &user.IsPrivate, &user.CreatedAt, &user.UpdatedAt,
+		&user.Role, &user.AvatarURL, &user.Dob, &user.DocumentID, pq.Array(&user.Followers), pq.Array(&user.Following), &user.IsKycVerified, &user.Country, &user.IsPrivate,
+		&user.TermsAcceptedAt, &user.TermsVersion, &user.DeletedAt, &user.SuspendedAt, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -62,13 +68,14 @@ func (r *userRepository) GetUserByUsername(ctx context.Context, username string)
 func (r *userRepository) GetUserByID(ctx context.Context, id string) (*domain.User, error) {
 	var user domain.User
 	sqlQuery := `
-		SELECT id, email, password_hash, name, username, role, avatar_url, dob, document_id, followers, following, is_kyc_verified, country, COALESCE(is_private, false), created_at, updated_at
+		SELECT ` + userColumns + `
 		FROM users
 		WHERE id = $1
 	`
 	err := r.db.QueryRowContext(ctx, sqlQuery, id).Scan(
 		&user.ID, &user.Email, &user.PasswordHash, &user.Name, &user.Username,
-		&user.Role, &user.AvatarURL, &user.Dob, &user.DocumentID, pq.Array(&user.Followers), pq.Array(&user.Following), &user.IsKycVerified, &user.Country, &user.IsPrivate, &user.CreatedAt, &user.UpdatedAt,
+		&user.Role, &user.AvatarURL, &user.Dob, &user.DocumentID, pq.Array(&user.Followers), pq.Array(&user.Following), &user.IsKycVerified, &user.Country, &user.IsPrivate,
+		&user.TermsAcceptedAt, &user.TermsVersion, &user.DeletedAt, &user.SuspendedAt, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -81,13 +88,14 @@ func (r *userRepository) GetUserByID(ctx context.Context, id string) (*domain.Us
 
 func (r *userRepository) CreateUser(ctx context.Context, user *domain.User) error {
 	query := `
-		INSERT INTO users (id, email, password_hash, name, username, role, avatar_url, dob, document_id, country, followers, following, is_kyc_verified, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		INSERT INTO users (id, email, password_hash, name, username, role, avatar_url, dob, document_id, country, followers, following, is_kyc_verified, created_at, updated_at, accepted_terms_at, terms_version)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 	`
 	
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID, user.Email, user.PasswordHash, user.Name, user.Username,
 		user.Role, user.AvatarURL, user.Dob, user.DocumentID, user.Country, pq.Array(user.Followers), pq.Array(user.Following), user.IsKycVerified, user.CreatedAt, user.UpdatedAt,
+		user.TermsAcceptedAt, user.TermsVersion,
 	)
 	
 	return err
@@ -324,10 +332,12 @@ func (r *userRepository) SearchUsers(ctx context.Context, query string, currentU
 	}
 
 	sqlQuery := `
-		SELECT id, email, password_hash, name, username, role, avatar_url, dob, document_id, followers, following, is_kyc_verified, country, COALESCE(is_private, false), created_at, updated_at 
+		SELECT ` + userColumns + ` 
 		FROM users 
 		WHERE (username ILIKE '%' || $1 || '%' OR name ILIKE '%' || $1 || '%')
-		AND id != $2
+		AND id != $2 AND deleted_at IS NULL AND suspended_at IS NULL
+		AND NOT EXISTS (SELECT 1 FROM user_blocks b
+			WHERE (b.blocker_id = $2 AND b.blocked_id = users.id) OR (b.blocker_id = users.id AND b.blocked_id = $2))
 		LIMIT 20
 	`
 	
@@ -342,7 +352,8 @@ func (r *userRepository) SearchUsers(ctx context.Context, query string, currentU
 		var user domain.User
 		err := rows.Scan(
 			&user.ID, &user.Email, &user.PasswordHash, &user.Name, &user.Username,
-			&user.Role, &user.AvatarURL, &user.Dob, &user.DocumentID, pq.Array(&user.Followers), pq.Array(&user.Following), &user.IsKycVerified, &user.Country, &user.IsPrivate, &user.CreatedAt, &user.UpdatedAt,
+			&user.Role, &user.AvatarURL, &user.Dob, &user.DocumentID, pq.Array(&user.Followers), pq.Array(&user.Following), &user.IsKycVerified, &user.Country, &user.IsPrivate,
+		&user.TermsAcceptedAt, &user.TermsVersion, &user.DeletedAt, &user.SuspendedAt, &user.CreatedAt, &user.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -365,4 +376,22 @@ func (r *userRepository) UpdateUserKycStatus(ctx context.Context, userID string,
 	}
 	_, err := r.db.ExecContext(ctx, sqlQuery, isVerified, c, userID)
 	return err
+}
+
+func (r *userRepository) AcceptTerms(ctx context.Context, userID, version string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE users SET accepted_terms_at = NOW(), terms_version = $2, updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL AND (accepted_terms_at IS NULL OR terms_version IS DISTINCT FROM $2)`, userID, version)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err == nil && n == 0 {
+		var exists bool
+		if err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND deleted_at IS NULL)`, userID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return domain.ErrUserNotFound
+		}
+	}
+	return nil
 }

@@ -135,7 +135,7 @@ func (f *fakeEventRepoForDance) GetUserEvents(ctx context.Context, username stri
 func (f *fakeEventRepoForDance) GetFollowedGoingAttendees(ctx context.Context, eventID string, currentUserID string, limit, offset int) ([]domain.Attendee, int, error) {
 	return nil, 0, nil
 }
-func (f *fakeEventRepoForDance) GetEventComments(ctx context.Context, eventID string, limit, offset int) ([]domain.EventComment, int, error) {
+func (f *fakeEventRepoForDance) GetEventComments(ctx context.Context, eventID, viewerID string, limit, offset int) ([]domain.EventComment, int, error) {
 	return nil, 0, nil
 }
 func (f *fakeEventRepoForDance) CreateEventComment(ctx context.Context, eventID string, authorID string, content string) (*domain.EventComment, error) {

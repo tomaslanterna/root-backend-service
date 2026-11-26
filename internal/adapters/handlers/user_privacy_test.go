@@ -69,6 +69,11 @@ type profileUserService struct {
 	user domain.User
 }
 
+// Sin bloqueos entre quien mira y el perfil.
+func (s *profileUserService) BlockState(context.Context, string, string) (bool, bool, error) {
+	return false, false, nil
+}
+
 // Perfil público: nadie tiene solicitud pendiente.
 func (s *profileUserService) FollowStatus(context.Context, string, *domain.User) (string, error) {
 	return domain.FollowStatusNone, nil

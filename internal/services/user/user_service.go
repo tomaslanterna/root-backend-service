@@ -12,6 +12,40 @@ import (
 type userService struct {
 	userRepo      ports.UserRepository
 	notifications ports.NotificationPublisher
+	blocks        ports.BlockRepository
+	moderator     ports.ContentModerationService
+}
+
+// UseBlocks hace que seguir y ver perfiles respeten los bloqueos entre usuarios.
+func UseBlocks(service ports.UserService, blocks ports.BlockRepository) {
+	if s, ok := service.(*userService); ok {
+		s.blocks = blocks
+	}
+}
+
+// UseModerator revisa el nombre de perfil con el moderador de contenido antes de guardarlo.
+func UseModerator(service ports.UserService, moderator ports.ContentModerationService) {
+	if s, ok := service.(*userService); ok {
+		s.moderator = moderator
+	}
+}
+
+// BlockState dice si viewerID bloqueó a targetID y si targetID bloqueó a viewerID.
+func (s *userService) BlockState(ctx context.Context, viewerID, targetID string) (bool, bool, error) {
+	if s.blocks == nil || viewerID == "" || targetID == "" || viewerID == targetID {
+		return false, false, nil
+	}
+	return s.blocks.BlockState(ctx, viewerID, targetID)
+}
+
+func (s *userService) blockedEitherWay(ctx context.Context, viewerID, targetID string) (bool, error) {
+	byViewer, byTarget, err := s.BlockState(ctx, viewerID, targetID)
+	return byViewer || byTarget, err
+}
+
+// AcceptTerms registra la aceptación de la versión vigente de los Términos y la Política de privacidad.
+func (s *userService) AcceptTerms(ctx context.Context, userID string) error {
+	return s.userRepo.AcceptTerms(ctx, userID, domain.CurrentTermsVersion)
 }
 
 func NewUserService(userRepo ports.UserRepository, publishers ...ports.NotificationPublisher) ports.UserService {
@@ -49,6 +83,11 @@ func (s *userService) FollowUser(ctx context.Context, currentUserID, targetUsern
 
 	if targetUser.ID == currentUserID {
 		return "", errors.New("you cannot follow yourself")
+	}
+	if blocked, err := s.blockedEitherWay(ctx, currentUserID, targetUser.ID); err != nil {
+		return "", err
+	} else if blocked {
+		return "", domain.ErrBlocked
 	}
 
 	// Perfil privado: se manda una solicitud que la persona acepta o rechaza.
@@ -99,10 +138,21 @@ func (s *userService) FollowStatus(ctx context.Context, viewerID string, target 
 }
 
 // CanViewProfile: los perfiles públicos los ve cualquiera; los privados, su dueño y sus seguidores.
+// Con un bloqueo de por medio nadie ve el contenido: si el perfil bloqueó a quien mira, el perfil "no existe".
 func (s *userService) CanViewProfile(ctx context.Context, viewerID, targetUsername string) (*domain.User, bool, error) {
 	target, err := s.userRepo.GetUserByUsername(ctx, targetUsername)
 	if err != nil {
 		return nil, false, err
+	}
+	blockedByViewer, blockedViewer, err := s.BlockState(ctx, viewerID, target.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	if blockedViewer {
+		return nil, false, domain.ErrUserNotFound
+	}
+	if blockedByViewer {
+		return target, false, nil
 	}
 	if !target.IsPrivate || viewerID == target.ID || contains(target.Followers, viewerID) {
 		return target, true, nil
@@ -261,6 +311,11 @@ func (s *userService) UpdateUser(ctx context.Context, userID, name, newUsername,
 		name = domain.NormalizeFullName(name)
 		if !domain.IsFullName(name) {
 			return nil, domain.ErrInvalidFullName
+		}
+		if s.moderator != nil && name != user.Name {
+			if err := s.moderator.ValidateContent(ctx, name); err != nil {
+				return nil, err
+			}
 		}
 		user.Name = name
 	}

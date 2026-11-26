@@ -47,10 +47,12 @@ type RegisterRequest struct {
 	Username   string  `json:"username"`
 	Email      string  `json:"email"`
 	Password   string  `json:"password"`
-	Role       string  `json:"role"` // Optional
 	Dob        *string `json:"dob"`
 	DocumentID *string `json:"documentId"`
 	Country    *string `json:"country"`
+	// AcceptedTerms tiene que ser true: aceptó los Términos y la Política de privacidad.
+	AcceptedTerms bool   `json:"acceptedTerms"`
+	TermsVersion  string `json:"termsVersion"`
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +62,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.authService.Register(r.Context(), req.Name, req.Username, req.Email, req.Password, req.Role, req.Dob, req.DocumentID, req.Country)
+	if !req.AcceptedTerms {
+		respondWithJSON(w, http.StatusBadRequest, map[string]string{"message": "Tenés que aceptar los Términos y la Política de privacidad."})
+		return
+	}
+	// Se guarda la versión vigente: la que manda el cliente solo sirve de referencia.
+	user, err := h.authService.Register(r.Context(), req.Name, req.Username, req.Email, req.Password, domain.CurrentTermsVersion, req.Dob, req.DocumentID, req.Country)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidFullName) {
 			respondWithJSON(w, http.StatusBadRequest, map[string]string{"message": "Ingresá tu nombre y apellido."})

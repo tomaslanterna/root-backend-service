@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/google/uuid"
 	"net/http"
 	"root-backend-service/internal/core/domain"
@@ -108,6 +109,10 @@ func (h *ChatHandler) MarkMessagesRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func respondWithChatError(w http.ResponseWriter, err error) {
+	if errors.Is(err, domain.ErrBlocked) {
+		respondWithBlocked(w)
+		return
+	}
 	switch err.Error() {
 	case "message content cannot be empty", "invalid message content or type", "invalid client_message_id", "invalid message cursor", "invalid message IDs":
 		respondWithError(w, http.StatusBadRequest, err.Error())
@@ -190,6 +195,10 @@ func (h *ChatHandler) CreateDirectChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chat, err := h.chatService.GetOrCreateDirectChat(r.Context(), currentUserID, req.TargetUserID)
+	if errors.Is(err, domain.ErrBlocked) {
+		respondWithBlocked(w)
+		return
+	}
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return

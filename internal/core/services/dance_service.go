@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,14 @@ import (
 type danceService struct {
 	danceRepo ports.DanceRepository
 	eventRepo ports.EventRepository
+	moderator ports.ContentModerationService
+}
+
+// UseDanceModerator revisa el nombre de las crews permanentes antes de crearlas.
+func UseDanceModerator(service ports.DanceService, moderator ports.ContentModerationService) {
+	if s, ok := service.(*danceService); ok {
+		s.moderator = moderator
+	}
 }
 
 func NewDanceService(danceRepo ports.DanceRepository, eventRepo ports.EventRepository) ports.DanceService {
@@ -86,6 +95,11 @@ func (s *danceService) SyncSteps(ctx context.Context, userID string, req ports.S
 }
 
 func (s *danceService) CreatePermanentCrew(ctx context.Context, creatorID string, req ports.CreateCrewRequest) (map[string]interface{}, error) {
+	if s.moderator != nil && strings.TrimSpace(req.Name) != "" {
+		if err := s.moderator.ValidateContent(ctx, req.Name); err != nil {
+			return nil, err
+		}
+	}
 	return s.danceRepo.CreatePermanentCrew(ctx, creatorID, req)
 }
 

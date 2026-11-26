@@ -10,7 +10,24 @@ import (
 	"root-backend-service/internal/core/ports"
 )
 
-type tempCrewService struct{ repo ports.TempCrewRepository }
+type tempCrewService struct {
+	repo      ports.TempCrewRepository
+	moderator ports.ContentModerationService
+}
+
+// UseTempCrewModerator revisa el nombre, el plan y los mensajes de solicitud antes de guardarlos.
+func UseTempCrewModerator(service ports.TempCrewService, moderator ports.ContentModerationService) {
+	if s, ok := service.(*tempCrewService); ok {
+		s.moderator = moderator
+	}
+}
+
+func (s *tempCrewService) moderate(ctx context.Context, text string) error {
+	if s.moderator == nil || strings.TrimSpace(text) == "" {
+		return nil
+	}
+	return s.moderator.ValidateContent(ctx, text)
+}
 
 func NewTempCrewService(repo ports.TempCrewRepository) ports.TempCrewService {
 	return &tempCrewService{repo: repo}
@@ -69,6 +86,9 @@ func (s *tempCrewService) Create(ctx context.Context, hostID, eventID string, in
 	case input.Capacity < domain.TempCrewMinCapacity || input.Capacity > domain.TempCrewMaxCapacity:
 		return nil, &domain.ValidationError{Message: "capacity must be between 2 and 10"}
 	}
+	if err := s.moderate(ctx, input.Name+"\n"+input.Plan); err != nil {
+		return nil, err
+	}
 	crewID, err := s.repo.Create(ctx, hostID, eventID, input)
 	if err != nil {
 		return nil, err
@@ -90,6 +110,9 @@ func (s *tempCrewService) RequestJoin(ctx context.Context, crewID, userID, messa
 	message = strings.TrimSpace(message)
 	if utf8.RuneCountInString(message) > domain.TempCrewMessageMax {
 		return domain.TempCrewJoinRequest{}, false, &domain.ValidationError{Message: "message must have at most 280 characters"}
+	}
+	if err := s.moderate(ctx, message); err != nil {
+		return domain.TempCrewJoinRequest{}, false, err
 	}
 	var msg *string
 	if message != "" {

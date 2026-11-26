@@ -24,6 +24,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"root-backend-service/internal/adapters/repository/postgres"
+	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 	aiservice "root-backend-service/internal/services/ai"
 	"root-backend-service/internal/services/eventimport"
@@ -51,7 +52,15 @@ func (t ticketAdapter) Fetch(ctx context.Context, title, date, location, country
 	}
 	tiers := make([]eventimport.Tier, 0, len(info.TicketTiers))
 	for _, t := range info.TicketTiers {
-		tiers = append(tiers, eventimport.Tier{Name: t.Name, Price: t.Price, Currency: t.Currency, SoldOut: t.SoldOut, FewRemaining: t.FewRemaining})
+		// Las cortesías no se guardan; los canjes sí, y se muestran sin precio.
+		if domain.IsCourtesyTier(t.Name) {
+			continue
+		}
+		price := 0.0
+		if t.Price != nil {
+			price = *t.Price
+		}
+		tiers = append(tiers, eventimport.Tier{Name: t.Name, Price: price, Currency: t.Currency, SoldOut: t.SoldOut, FewRemaining: t.FewRemaining})
 	}
 	return source, tiers, nil
 }

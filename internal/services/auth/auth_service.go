@@ -32,7 +32,7 @@ func NewAuthService(repo ports.UserRepository, sessions ...ports.SessionReposito
 
 func (s *authService) Login(ctx context.Context, email, password string) (string, *domain.User, error) {
 	user, err := s.userRepo.GetUserByEmail(ctx, email)
-	if err != nil || user == nil {
+	if err != nil || user == nil || user.Unavailable() {
 		return "", nil, errors.New("invalid credentials")
 	}
 	var version int64
@@ -72,7 +72,10 @@ func (s *authService) Login(ctx context.Context, email, password string) (string
 	return tokenString, user, nil
 }
 
-func (s *authService) Register(ctx context.Context, name, username, email, password, role string, dob *string, documentID *string, country *string) (*domain.User, error) {
+func (s *authService) Register(ctx context.Context, name, username, email, password, termsVersion string, dob *string, documentID *string, country *string) (*domain.User, error) {
+	if strings.TrimSpace(termsVersion) == "" {
+		return nil, domain.ErrTermsNotAccepted
+	}
 	if err := ValidatePassword(password); err != nil {
 		return nil, err
 	}
@@ -87,10 +90,8 @@ func (s *authService) Register(ctx context.Context, name, username, email, passw
 		return nil, errors.New("user already exists with this email")
 	}
 
-	// 2. Default Role
-	if role == "" {
-		role = "USER"
-	}
+	// 2. Rol: siempre USER. Los roles ADMIN y RRPP se asignan a mano, nunca desde el registro.
+	role := "USER"
 
 	// 3. Hash Password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -115,6 +116,8 @@ func (s *authService) Register(ctx context.Context, name, username, email, passw
 		IsKycVerified: false,
 		CreatedAt:     now,
 		UpdatedAt:     now,
+		TermsAcceptedAt: &now,
+		TermsVersion:    &termsVersion,
 	}
 
 	// 5. Save to DB

@@ -298,9 +298,20 @@ func (r *NotificationRepository) Prune(ctx context.Context) error {
 	return err
 }
 
+// blockedPair dice si entre a y b hay un bloqueo en cualquier sentido: entre ellos no se notifica nada.
+func (r *NotificationRepository) blockedPair(ctx context.Context, a, b string) (bool, error) {
+	var blocked bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM user_blocks
+		WHERE (blocker_id::text = $1 AND blocked_id::text = $2) OR (blocker_id::text = $2 AND blocked_id::text = $1))`, a, b).Scan(&blocked)
+	return blocked, err
+}
+
 func (r *NotificationRepository) NotifyFollow(ctx context.Context, actorID, targetUserID string) error {
 	var name, username string
 	if err := r.db.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(TRIM(name),''),username),username FROM users WHERE id=$1`, actorID).Scan(&name, &username); err != nil {
+		return err
+	}
+	if blocked, err := r.blockedPair(ctx, actorID, targetUserID); err != nil || blocked {
 		return err
 	}
 	return r.Create(ctx, domain.NotificationInput{UserID: targetUserID, Type: "social.follow", Category: domain.NotificationSocial,
@@ -315,6 +326,9 @@ func (r *NotificationRepository) NotifyPostLike(ctx context.Context, actorID, po
 	if owner == actorID {
 		return nil
 	}
+	if blocked, err := r.blockedPair(ctx, actorID, owner); err != nil || blocked {
+		return err
+	}
 	return r.Create(ctx, domain.NotificationInput{UserID: owner, Type: "post.like", Category: domain.NotificationSocial,
 		Title: "Le gustó tu publicación", Body: name + " marcó que le gusta tu publicación.", Data: map[string]string{"post_id": postID}, DedupeKey: "post.like:" + postID + ":" + actorID})
 }
@@ -326,6 +340,9 @@ func (r *NotificationRepository) NotifyPostComment(ctx context.Context, actorID,
 	}
 	if owner == actorID {
 		return nil
+	}
+	if blocked, err := r.blockedPair(ctx, actorID, owner); err != nil || blocked {
+		return err
 	}
 	return r.Create(ctx, domain.NotificationInput{UserID: owner, Type: "post.comment", Category: domain.NotificationSocial,
 		Title: "Nuevo comentario", Body: name + " comentó tu publicación.", Data: map[string]string{"post_id": postID}, DedupeKey: "post.comment:" + commentID})
@@ -341,6 +358,9 @@ func (r *NotificationRepository) NotifyEventComment(ctx context.Context, actorID
 	}
 	if owner == actorID {
 		return nil
+	}
+	if blocked, err := r.blockedPair(ctx, actorID, owner); err != nil || blocked {
+		return err
 	}
 	return r.Create(ctx, domain.NotificationInput{UserID: owner, Type: "event.comment", Category: domain.NotificationSocial,
 		Title: "Comentaron " + title, Body: name + " dejó un comentario en tu evento.", Data: map[string]string{"event_id": eventID}, DedupeKey: "event.comment:" + commentID})

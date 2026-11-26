@@ -179,7 +179,8 @@ func (h *PostHandler) GetPostComments(w http.ResponseWriter, r *http.Request) {
 	limit := getQueryInt(r, "limit", 20)
 	offset := getQueryInt(r, "offset", 0)
 
-	comments, total, err := h.postService.GetPostComments(r.Context(), chi.URLParam(r, "id"), limit, offset)
+	viewerID, _ := r.Context().Value(UserIDKey).(string)
+	comments, total, err := h.postService.GetPostComments(r.Context(), chi.URLParam(r, "id"), viewerID, limit, offset)
 	if err != nil {
 		if err.Error() == "post not found" {
 			respondWithError(w, http.StatusNotFound, "Post no encontrado")
@@ -226,7 +227,9 @@ func (h *PostHandler) CommentPost(w http.ResponseWriter, r *http.Request) {
 
 	comment, err := h.postService.CreatePostComment(r.Context(), chi.URLParam(r, "id"), userID, request.Content)
 	if err != nil {
-		if err.Error() == "sql: no rows in result set" || err.Error() == "post not found" {
+		if errors.Is(err, domain.ErrContentPolicyViolation) {
+			respondWithContentPolicy(w)
+		} else if err.Error() == "sql: no rows in result set" || err.Error() == "post not found" {
 			respondWithError(w, http.StatusNotFound, "Post no encontrado")
 		} else {
 			respondWithError(w, http.StatusInternalServerError, "Error creando comentario")
@@ -268,7 +271,9 @@ func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.postService.CreatePost(r.Context(), post); err != nil {
-		if errors.Is(err, domain.ErrCommunityForbidden) {
+		if errors.Is(err, domain.ErrContentPolicyViolation) {
+			respondWithContentPolicy(w)
+		} else if errors.Is(err, domain.ErrCommunityForbidden) {
 			respondWithError(w, http.StatusForbidden, "No tenés permiso para publicar en esta comunidad")
 		} else if errors.Is(err, domain.ErrCommunityNotFound) {
 			respondWithError(w, http.StatusNotFound, "Comunidad no encontrada")
@@ -356,6 +361,8 @@ func (h *PostHandler) CreateCommunityAnnouncement(w http.ResponseWriter, r *http
 	created, err := h.postService.CreateCommunityAnnouncement(r.Context(), chi.URLParam(r, "id"), userID, post)
 	if err != nil {
 		switch {
+		case errors.Is(err, domain.ErrContentPolicyViolation):
+			respondWithContentPolicy(w)
 		case errors.Is(err, domain.ErrCommunityNotFound):
 			respondWithError(w, http.StatusNotFound, "Comunidad no encontrada")
 		case errors.Is(err, domain.ErrCommunityForbidden):
