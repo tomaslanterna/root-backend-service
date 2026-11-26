@@ -353,3 +353,20 @@ func TestPostModeratorRejectsBeforeSaving(t *testing.T) {
 		t.Fatalf("valid post err=%v created=%d", err, repo.created)
 	}
 }
+
+func TestDeleteAccountRunsBeforeDeleteEvenIfItFails(t *testing.T) {
+	repo := &accountRepoFake{}
+	service := NewAccountService(repo, nil, nil)
+	var revoked []string
+	service.BeforeDelete(func(_ context.Context, userID string) error {
+		revoked = append(revoked, userID)
+		return errors.New("apple down")
+	})
+	if err := service.DeleteAccount(context.Background(), "user-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Si revocar en Apple falla, la cuenta se borra igual (la persona pidió irse).
+	if len(revoked) != 1 || len(repo.deleted) != 1 {
+		t.Fatalf("revoked=%v deleted=%v", revoked, repo.deleted)
+	}
+}

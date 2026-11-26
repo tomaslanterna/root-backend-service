@@ -317,6 +317,24 @@ func main() {
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo, sessionCache)
+	// Sign in with Apple: APPLE_CLIENT_IDS (bundle id y, si hay login web, el Services ID), APPLE_TEAM_ID,
+	// APPLE_KEY_ID y APPLE_PRIVATE_KEY (contenido del .p8, para revocar el acceso al borrar la cuenta).
+	appleClient, err := auth.NewAppleClient(auth.AppleConfig{
+		TeamID: os.Getenv("APPLE_TEAM_ID"), KeyID: os.Getenv("APPLE_KEY_ID"), PrivateKey: os.Getenv("APPLE_PRIVATE_KEY"),
+		ClientIDs: strings.Split(os.Getenv("APPLE_CLIENT_IDS"), ","),
+	})
+	if err != nil {
+		log.Fatalf("Could not configure Sign in with Apple: %v", err)
+	}
+	if appleClient != nil {
+		authService.UseApple(appleClient, postgres.NewAppleIdentityRepository(db))
+		accountService.BeforeDelete(authService.RevokeApple)
+		if !appleClient.CanRevoke() {
+			log.Println("Sign in with Apple enabled without APPLE_PRIVATE_KEY: account deletion cannot revoke Apple tokens")
+		}
+	} else {
+		log.Println("Sign in with Apple disabled; set APPLE_CLIENT_IDS to enable it")
+	}
 	userService := user.NewUserService(userRepo, notificationService)
 
 	aiTicketProvider := aiservice.NewGeminiTicketProvider()

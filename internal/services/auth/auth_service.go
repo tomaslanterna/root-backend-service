@@ -18,8 +18,10 @@ import (
 )
 
 type authService struct {
-	userRepo ports.UserRepository
-	sessions ports.SessionRepository
+	userRepo        ports.UserRepository
+	sessions        ports.SessionRepository
+	apple           ports.AppleAuthClient
+	appleIdentities ports.AppleIdentityRepository
 }
 
 func NewAuthService(repo ports.UserRepository, sessions ...ports.SessionRepository) *authService {
@@ -150,19 +152,7 @@ func (s *authService) GoogleLogin(ctx context.Context, idToken string) (string, 
 	if err != nil { // User does not exist, let's register them
 		now := time.Now()
 
-		// Generate unique username
-		baseUsername := strings.ToLower(strings.Split(email, "@")[0])
-		username := baseUsername
-		suffix := 1
-		for {
-			_, err := s.userRepo.GetUserByUsername(ctx, username)
-			if err != nil {
-				// Error means user not found, which is good (unique)
-				break
-			}
-			username = fmt.Sprintf("%s%d", baseUsername, suffix)
-			suffix++
-		}
+		username := s.uniqueUsername(ctx, strings.Split(email, "@")[0])
 
 		user = &domain.User{
 			ID:            uuid.New().String(),
@@ -185,32 +175,57 @@ func (s *authService) GoogleLogin(ctx context.Context, idToken string) (string, 
 	}
 
 	// 4. Generate our JWT
+	tokenString, err := s.issueSession(ctx, user)
+	if err != nil {
+		return "", nil, err
+	}
+	return tokenString, user, nil
+}
+
+// issueSession firma el JWT de root para la cuenta (login con Google o Apple), con su versión de sesión vigente.
+func (s *authService) issueSession(ctx context.Context, user *domain.User) (string, error) {
 	var version int64
 	if s.sessions != nil {
+		var err error
 		version, err = s.sessions.GetSessionVersion(ctx, user.ID)
 		if err != nil {
-			return "", nil, errors.New("could not create session")
+			return "", errors.New("could not create session")
 		}
 	}
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		secret = "default_fallback_secret" // For dev
 	}
-
 	claims := jwt.MapClaims{
 		"sub":            user.ID,
 		"role":           user.Role,
 		"exp":            time.Now().Add(time.Hour * 168).Unix(),
 		"sessionVersion": version,
 	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(secret))
-	if err != nil {
-		return "", nil, err
+// uniqueUsername arma un alias libre a partir de base (minúsculas, solo letras, números, punto y guion bajo).
+func (s *authService) uniqueUsername(ctx context.Context, base string) string {
+	base = strings.ToLower(strings.TrimSpace(base))
+	var b strings.Builder
+	for _, r := range base {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' {
+			b.WriteRune(r)
+		}
 	}
-
-	return tokenString, user, nil
+	base = b.String()
+	if base == "" {
+		base = "raver"
+	}
+	username := base
+	for suffix := 1; ; suffix++ {
+		if _, err := s.userRepo.GetUserByUsername(ctx, username); err != nil {
+			// Error means user not found, which is good (unique)
+			return username
+		}
+		username = fmt.Sprintf("%s%d", base, suffix)
+	}
 }
 
 func (s *authService) ValidateSession(ctx context.Context, userID string, version int64) error {
