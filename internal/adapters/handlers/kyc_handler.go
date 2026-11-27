@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -118,6 +119,10 @@ func (h *KycHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, resp)
 }
 
+// maxKycImageBytes: las fotos del flujo KYC llegan como JPEG desde el canvas. Se guardan solo si el
+// contenido es realmente una imagen, con una key fija (sin el nombre que manda el cliente).
+const maxKycImageBytes = 10 << 20
+
 // UploadDocument handles the upload of the ID card images
 func (h *KycHandler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 	session, ok := h.ownedSession(w, r)
@@ -131,11 +136,17 @@ func (h *KycHandler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, header, err := r.FormFile("frontImage")
+	file, _, err := r.FormFile("frontImage")
 	if err == nil {
 		defer file.Close()
-		key := fmt.Sprintf("kyc/%s/doc_front_%s", sessionID, header.Filename)
-		_, s3Err := h.s3Service.UploadToS3(r.Context(), file, key, header.Header.Get("Content-Type"))
+		data, contentType, ext, readErr := readImageUpload(file, maxKycImageBytes, false)
+		if readErr != nil {
+			status, msg := imageUploadErrorStatus(readErr)
+			respondWithJSON(w, status, map[string]string{"error": msg})
+			return
+		}
+		key := fmt.Sprintf("kyc/%s/doc_front.%s", sessionID, ext)
+		_, s3Err := h.s3Service.UploadToS3(r.Context(), bytes.NewReader(data), key, contentType)
 		if s3Err != nil {
 			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to upload front document to S3"})
 			return
@@ -143,11 +154,17 @@ func (h *KycHandler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 		session.DocFrontURL = key
 	}
 
-	backFile, backHeader, errBack := r.FormFile("backImage")
+	backFile, _, errBack := r.FormFile("backImage")
 	if errBack == nil {
 		defer backFile.Close()
-		key := fmt.Sprintf("kyc/%s/doc_back_%s", sessionID, backHeader.Filename)
-		_, s3Err := h.s3Service.UploadToS3(r.Context(), backFile, key, backHeader.Header.Get("Content-Type"))
+		data, contentType, ext, readErr := readImageUpload(backFile, maxKycImageBytes, false)
+		if readErr != nil {
+			status, msg := imageUploadErrorStatus(readErr)
+			respondWithJSON(w, status, map[string]string{"error": msg})
+			return
+		}
+		key := fmt.Sprintf("kyc/%s/doc_back.%s", sessionID, ext)
+		_, s3Err := h.s3Service.UploadToS3(r.Context(), bytes.NewReader(data), key, contentType)
 		if s3Err != nil {
 			respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to upload back document to S3"})
 			return
@@ -186,15 +203,21 @@ func (h *KycHandler) UploadFace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, header, err := r.FormFile("faceMedia")
+	file, _, err := r.FormFile("faceMedia")
 	if err != nil {
 		respondWithJSON(w, http.StatusBadRequest, map[string]string{"error": "faceMedia file is required"})
 		return
 	}
 	defer file.Close()
+	data, contentType, ext, readErr := readImageUpload(file, maxKycImageBytes, false)
+	if readErr != nil {
+		status, msg := imageUploadErrorStatus(readErr)
+		respondWithJSON(w, status, map[string]string{"error": msg})
+		return
+	}
 
-	key := fmt.Sprintf("kyc/%s/face_%s", sessionID, header.Filename)
-	_, s3Err := h.s3Service.UploadToS3(r.Context(), file, key, header.Header.Get("Content-Type"))
+	key := fmt.Sprintf("kyc/%s/face.%s", sessionID, ext)
+	_, s3Err := h.s3Service.UploadToS3(r.Context(), bytes.NewReader(data), key, contentType)
 	if s3Err != nil {
 		respondWithJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to upload face media to S3"})
 		return
@@ -302,13 +325,6 @@ func (h *KycHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"matchScore":    session.MatchScore,
 		"extractedData": extractedData,
 		"failureReason": session.FailureReason,
-	}
-	respondWithJSON(w, http.StatusOK, resp)
-}
-
-func (h *KycHandler) WebhookProvider(w http.ResponseWriter, r *http.Request) {
-	resp := map[string]interface{}{
-		"message": "Webhook received",
 	}
 	respondWithJSON(w, http.StatusOK, resp)
 }

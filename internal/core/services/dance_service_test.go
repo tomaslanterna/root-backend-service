@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"context"
 	"testing"
 	"time"
@@ -292,5 +293,18 @@ func TestGetCrewLeaderboardsResolvesLatestCrewEventWhenNoneProvided(t *testing.T
 	byEvent, ok := res["byEvent"].([]map[string]interface{})
 	if !ok || len(byEvent) != 2 {
 		t.Fatalf("expected 2 members in byEvent leaderboard, got %+v", res["byEvent"])
+	}
+}
+
+func TestSyncStepsRejectsImpossibleStepCounts(t *testing.T) {
+	svc := NewDanceService(&fakeDanceRepo{}, &fakeEventRepoForDance{events: map[string]*domain.Event{"e": {ID: "e"}}})
+	for _, steps := range []int{-1, ports.MaxDanceStepsPerSession + 1} {
+		_, err := svc.SyncSteps(context.Background(), "user-1", ports.SyncDanceRequest{EventID: "e", StepsCount: steps})
+		if !errors.Is(err, ports.ErrInvalidDanceSync) {
+			t.Fatalf("steps %d: err = %v", steps, err)
+		}
+	}
+	if _, err := svc.SyncSteps(context.Background(), "user-1", ports.SyncDanceRequest{EventID: "missing", StepsCount: 10}); !errors.Is(err, ports.ErrDanceEventNotFound) {
+		t.Fatalf("missing event: err = %v", err)
 	}
 }

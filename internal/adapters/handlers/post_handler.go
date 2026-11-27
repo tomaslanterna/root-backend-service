@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -408,14 +409,22 @@ func (h *PostHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := r.ParseMultipartForm(32 << 20) // 32MB limit
-	if err != nil {
+	userID, _ := r.Context().Value(UserIDKey).(string)
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "No autorizado")
+		return
+	}
+
+	// El frontend comprime a JPEG antes de subir; 15 MB deja margen para GIF y PNG sin recomprimir.
+	const maxPostImageBytes = 15 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxPostImageBytes+(1<<20))
+	if err := r.ParseMultipartForm(maxPostImageBytes); err != nil {
 		log.Printf("UploadImage ParseMultipartForm error: %v", err)
 		respondWithError(w, http.StatusBadRequest, "File too large or invalid")
 		return
 	}
 
-	file, header, err := r.FormFile("image")
+	file, _, err := r.FormFile("image")
 	if err != nil {
 		log.Printf("UploadImage FormFile error: %v", err)
 		respondWithError(w, http.StatusBadRequest, "No image file provided")
@@ -423,13 +432,16 @@ func (h *PostHandler) UploadImage(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	userID, _ := r.Context().Value(UserIDKey).(string)
-	if userID == "" {
-		userID = "anonymous"
+	// Tipo por contenido y key sin el nombre que manda el cliente: solo imágenes en el bucket público.
+	data, contentType, ext, err := readImageUpload(file, maxPostImageBytes, true)
+	if err != nil {
+		status, msg := imageUploadErrorStatus(err)
+		respondWithError(w, status, msg)
+		return
 	}
 
-	key := fmt.Sprintf("posts/%s/%d_%s", userID, time.Now().Unix(), header.Filename)
-	_, s3Err := h.s3Service.UploadToS3(r.Context(), file, key, header.Header.Get("Content-Type"))
+	key := fmt.Sprintf("posts/%s/%d.%s", userID, time.Now().UnixNano(), ext)
+	_, s3Err := h.s3Service.UploadToS3(r.Context(), bytes.NewReader(data), key, contentType)
 	if s3Err != nil {
 		log.Printf("UploadImage S3 upload error: %v", s3Err)
 		respondWithError(w, http.StatusInternalServerError, "Failed to upload image to S3")

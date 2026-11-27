@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"math"
 	"strings"
 	"time"
@@ -50,13 +49,13 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 }
 
 func (s *danceService) SyncSteps(ctx context.Context, userID string, req ports.SyncDanceRequest) (*domain.DanceSession, error) {
-	if req.StepsCount < 0 || math.IsNaN(req.Lat) || math.IsNaN(req.Lng) || math.IsInf(req.Lat, 0) || math.IsInf(req.Lng, 0) || req.Lat < -90 || req.Lat > 90 || req.Lng < -180 || req.Lng > 180 {
-		return nil, errors.New("invalid dance synchronization")
+	if req.StepsCount < 0 || req.StepsCount > ports.MaxDanceStepsPerSession || math.IsNaN(req.Lat) || math.IsNaN(req.Lng) || math.IsInf(req.Lat, 0) || math.IsInf(req.Lng, 0) || req.Lat < -90 || req.Lat > 90 || req.Lng < -180 || req.Lng > 180 {
+		return nil, ports.ErrInvalidDanceSync
 	}
 	// Validate event exists and get its coordinates
 	event, err := s.eventRepo.GetEventByID(ctx, req.EventID, userID)
 	if err != nil {
-		return nil, errors.New("event not found")
+		return nil, ports.ErrDanceEventNotFound
 	}
 
 	isValidated := false
@@ -77,12 +76,13 @@ func (s *danceService) SyncSteps(ctx context.Context, userID string, req ports.S
 	}
 
 	session := &domain.DanceSession{
-		ID:          uuid.New().String(),
-		UserID:      userID,
-		EventID:     req.EventID,
-		StepsCount:  req.StepsCount,
-		StartTime:   req.StartTime,
-		EndTime:     req.EndTime,
+		ID:         uuid.New().String(),
+		UserID:     userID,
+		EventID:    req.EventID,
+		StepsCount: req.StepsCount,
+		// Las horas del cliente no se usan: el repositorio guarda el inicio de la fiesta y NOW().
+		StartTime:   time.Now(),
+		EndTime:     time.Now(),
 		IsValidated: isValidated,
 		CreatedAt:   time.Now(),
 	}

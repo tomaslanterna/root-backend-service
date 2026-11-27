@@ -78,7 +78,15 @@ func (h *DanceHandler) SyncSteps(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.danceService.SyncSteps(r.Context(), userID, req)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		switch {
+		case errors.Is(err, ports.ErrInvalidDanceSync):
+			respondWithError(w, http.StatusBadRequest, "Datos de pasos inválidos")
+		case errors.Is(err, ports.ErrDanceEventNotFound):
+			respondWithError(w, http.StatusNotFound, "Evento no encontrado")
+		default:
+			log.Printf("SyncSteps failed for user %s: %v", userID, err)
+			respondWithError(w, http.StatusInternalServerError, "No se pudieron guardar los pasos")
+		}
 		return
 	}
 

@@ -123,6 +123,21 @@ type CommunityService interface {
 	UpdatePromotedEvents(ctx context.Context, communityID, userID string, eventIDs []string) ([]domain.Event, error)
 }
 
+// Topes anti-trampa para los pasos de una fiesta (ver SaveDanceSession). 240 pasos por minuto es más que
+// el ritmo de alguien bailando o corriendo; 60.000 por fiesta es una noche entera sin parar.
+const (
+	MaxDanceStepsPerMinute  = 240
+	MaxDanceStepsPerSession = 60000
+)
+
+// ErrInvalidDanceSync: la sincronización trae datos imposibles (pasos negativos o enormes, coordenadas inválidas).
+var ErrInvalidDanceSync = errors.New("invalid dance synchronization")
+
+// ErrDanceEventNotFound: la fiesta de la sincronización no existe.
+var ErrDanceEventNotFound = errors.New("event not found")
+
+// SyncDanceRequest es lo que manda la app. StartTime y EndTime se aceptan por compatibilidad pero el
+// servidor los ignora: usa el inicio de la fiesta y la hora de llegada.
 type SyncDanceRequest struct {
 	EventID    string    `json:"eventId"`
 	StepsCount int       `json:"stepsCount"`

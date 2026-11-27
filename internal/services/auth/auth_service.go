@@ -24,6 +24,22 @@ type authService struct {
 	appleIdentities ports.AppleIdentityRepository
 }
 
+// MinJWTSecretBytes es el largo recomendado para el secreto HS256 de las sesiones.
+const MinJWTSecretBytes = 32
+
+var errMissingJWTSecret = errors.New("JWT_SECRET is not configured")
+
+// CheckJWTSecret se llama al arrancar el servidor. Devuelve error si falta JWT_SECRET (el servidor no
+// debe arrancar) y weak=true si es más corto que MinJWTSecretBytes (se avisa en el log, no se corta,
+// para no invalidar las sesiones de un deploy que ya usa un secreto corto).
+func CheckJWTSecret() (weak bool, err error) {
+	secret := os.Getenv("JWT_SECRET")
+	if strings.TrimSpace(secret) == "" {
+		return false, errMissingJWTSecret
+	}
+	return len(secret) < MinJWTSecretBytes, nil
+}
+
 func NewAuthService(repo ports.UserRepository, sessions ...ports.SessionRepository) *authService {
 	s := &authService{userRepo: repo}
 	if len(sessions) > 0 {
@@ -55,7 +71,8 @@ func (s *authService) Login(ctx context.Context, email, password string) (string
 	// Generate JWT
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "default_fallback_secret" // For dev
+		// Sin secreto no se firma nada: antes se usaba uno fijo y cualquiera podía fabricar tokens.
+		return "", nil, errMissingJWTSecret
 	}
 
 	claims := jwt.MapClaims{
@@ -194,7 +211,7 @@ func (s *authService) issueSession(ctx context.Context, user *domain.User) (stri
 	}
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "default_fallback_secret" // For dev
+		return "", errMissingJWTSecret
 	}
 	claims := jwt.MapClaims{
 		"sub":            user.ID,
