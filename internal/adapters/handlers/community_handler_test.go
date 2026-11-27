@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -18,6 +19,12 @@ type communityServiceForHandlerStub struct {
 	currentUser string
 	joinCalls   int
 	leaveCalls  int
+	createOwner string
+}
+
+func (s *communityServiceForHandlerStub) CreateCommunity(_ context.Context, ownerID string, input domain.CreateCommunityInput) (*domain.Community, error) {
+	s.createOwner = ownerID
+	return &domain.Community{ID: "community-new", Name: input.Name}, nil
 }
 
 func (s *communityServiceForHandlerStub) GetCommunities(_ context.Context, filter domain.CommunityFilter, currentUserID string) ([]domain.Community, int, error) {
@@ -102,5 +109,22 @@ func TestMembershipHandlersRequireAuthenticatedUser(t *testing.T) {
 				t.Fatalf("expected 401, got %d", response.Code)
 			}
 		})
+	}
+}
+
+func TestCreateCommunityUsesAuthenticatedOwner(t *testing.T) {
+	service := &communityServiceForHandlerStub{}
+	handler := NewCommunityHandler(service)
+	request := httptest.NewRequest(http.MethodPost, "/v1/communities", strings.NewReader(`{"name":"Techno del Este","category":"electrónica","zone":"Maldonado","countryId":"UY","description":"Fechas y comunidad"}`))
+	request = request.WithContext(context.WithValue(request.Context(), UserIDKey, "rrpp-1"))
+	response := httptest.NewRecorder()
+
+	handler.CreateCommunity(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", response.Code, response.Body.String())
+	}
+	if service.createOwner != "rrpp-1" {
+		t.Fatalf("expected authenticated owner, got %q", service.createOwner)
 	}
 }

@@ -102,6 +102,7 @@ type PostRepository interface {
 }
 
 type CommunityRepository interface {
+	CreateCommunity(ctx context.Context, ownerID string, input domain.CreateCommunityInput) (*domain.Community, error)
 	SetMuted(ctx context.Context, communityID, userID string, muted bool) error
 	MarkRead(ctx context.Context, communityID, userID, postID string) error
 	SetPinned(ctx context.Context, communityID, postID string, pinned bool) error
@@ -149,4 +150,3 @@ type DanceRepository interface {
 	GetCrewEvents(ctx context.Context, squadID string) ([]map[string]interface{}, error)
 	GetEventLiveRanking(ctx context.Context, eventID string) (map[string]interface{}, error)
 }
-
