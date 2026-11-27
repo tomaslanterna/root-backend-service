@@ -12,6 +12,10 @@ type mockCommunityRepo struct {
 	communities          []domain.Community
 }
 
+func (m *mockCommunityRepo) CreateCommunity(ctx context.Context, ownerID string, input domain.CreateCommunityInput) (*domain.Community, error) {
+	return nil, nil
+}
+
 func (m *mockCommunityRepo) SetMuted(ctx context.Context, communityID, userID string, muted bool) error {
 	return nil
 }

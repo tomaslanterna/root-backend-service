@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
 	"strings"
@@ -16,6 +17,73 @@ type communityRepository struct {
 
 func NewCommunityRepository(db *sql.DB) ports.CommunityRepository {
 	return &communityRepository{db: db}
+}
+
+var communitySlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
+
+func communitySlug(name string) string {
+	normalized := strings.NewReplacer(
+		"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n",
+	).Replace(strings.ToLower(strings.TrimSpace(name)))
+	return strings.Trim(communitySlugPattern.ReplaceAllString(normalized, "-"), "-")
+}
+
+func (r *communityRepository) CreateCommunity(ctx context.Context, ownerID string, input domain.CreateCommunityInput) (*domain.Community, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin create community transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var role string
+	if err := tx.QueryRowContext(ctx, `SELECT UPPER(role) FROM users WHERE id::text = $1`, ownerID).Scan(&role); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrCommunityForbidden
+		}
+		return nil, fmt.Errorf("read community owner role: %w", err)
+	}
+	if role != "RRPP" && role != "ADMIN" {
+		return nil, domain.ErrCommunityForbidden
+	}
+
+	slug := communitySlug(input.Name)
+	if slug == "" {
+		return nil, domain.ErrCommunityInvalid
+	}
+	var communityID string
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO communities (
+			id, name, slug, category, zone, pr_owner_id, country_id,
+			cover_image_url, description, created_at, is_active
+		) VALUES (
+			gen_random_uuid(), $1,
+			CASE WHEN EXISTS (SELECT 1 FROM communities WHERE LOWER(slug) = LOWER($2))
+				THEN $2 || '-' || SUBSTRING(gen_random_uuid()::text, 1, 6) ELSE $2 END,
+			$3, NULLIF($4, ''), $5::uuid, $6, '', $7, NOW(), TRUE
+		) RETURNING id::text`,
+		input.Name, slug, input.Category, input.Zone, ownerID, input.CountryID, input.Description,
+	).Scan(&communityID); err != nil {
+		return nil, fmt.Errorf("insert community: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO community_managers (community_id, user_id) VALUES ($1::uuid, $2::uuid)
+		ON CONFLICT DO NOTHING`, communityID, ownerID); err != nil {
+		return nil, fmt.Errorf("assign community manager: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO community_members (community_id, user_id, joined_at) VALUES ($1::uuid, $2::uuid, NOW())
+		ON CONFLICT (community_id, user_id) DO NOTHING`, communityID, ownerID); err != nil {
+		return nil, fmt.Errorf("join community owner: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit create community: %w", err)
+	}
+
+	created, err := r.GetCommunityByIDOrSlug(ctx, communityID, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("load created community: %w", err)
+	}
+	return created, nil
 }
 
 func (r *communityRepository) InitSchema(ctx context.Context) error {

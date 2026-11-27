@@ -6,13 +6,13 @@ import (
 )
 
 var (
-	ErrCommunityNotFound          = errors.New("community not found")
-	ErrCommunityForbidden         = errors.New("community publishing forbidden")
-	ErrCommunityInvalid           = errors.New("invalid community request")
-	ErrCommunityTargetNotFound    = errors.New("community content not found")
-	ErrCommunityCannotKickOwner   = errors.New("cannot kick community owner")
+	ErrCommunityNotFound           = errors.New("community not found")
+	ErrCommunityForbidden          = errors.New("community publishing forbidden")
+	ErrCommunityInvalid            = errors.New("invalid community request")
+	ErrCommunityTargetNotFound     = errors.New("community content not found")
+	ErrCommunityCannotKickOwner    = errors.New("cannot kick community owner")
 	ErrCommunityReactionNotAllowed = errors.New("reactions only allowed on RRPP messages")
-	ErrCommunityChannelClosed     = errors.New("channel is closed for member messages")
+	ErrCommunityChannelClosed      = errors.New("channel is closed for member messages")
 )
 
 type Community struct {
@@ -33,6 +33,14 @@ type Community struct {
 	UnreadCount   int               `json:"unreadCount"`
 	Muted         bool              `json:"muted"`
 	Contact       *CommunityContact `json:"contact,omitempty"`
+}
+
+type CreateCommunityInput struct {
+	Name        string `json:"name"`
+	Category    string `json:"category"`
+	Zone        string `json:"zone"`
+	CountryID   string `json:"countryId"`
+	Description string `json:"description"`
 }
 
 type CommunityContact struct {
