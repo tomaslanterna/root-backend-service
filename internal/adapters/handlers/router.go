@@ -15,7 +15,6 @@ type RouterConfig struct {
 	PostHandler         *PostHandler
 	EventHandler        *EventHandler
 	CommunityHandler    *CommunityHandler
-	CrewHandler         *CrewHandler
 	KycHandler          *KycHandler
 	SearchHandler       *SearchHandler
 	ChatHandler         *ChatHandler
@@ -48,14 +47,15 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	// Configuración de CORS
 	r.Use(cors.Handler(cors.Options{
-		// Usamos AllowOriginFunc para aceptar dinámicamente cualquier origen (ideal para Capacitor y Vercel/Netlify en conjunto)
+		// Solo orígenes conocidos (web, Vercel, Capacitor). Ver cors.go y CORS_ALLOWED_ORIGINS.
 		AllowOriginFunc: func(r *http.Request, origin string) bool {
-			return true
+			return corsOriginAllowed(origin)
 		},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: true,
+		AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders: []string{"Link"},
+		// La sesión viaja en el header Authorization, no en cookies: no hace falta permitir credenciales.
+		AllowCredentials: false,
 		MaxAge:           300,
 	}))
 
@@ -162,8 +162,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(AuthMiddleware).Post("/events/image", cfg.EventHandler.UploadEventImage)
 		// Reemplazo del flyer de un evento existente (solo ADMIN)
 		r.With(AuthMiddleware).Patch("/events/{id}/image", cfg.EventHandler.UpdateEventImage)
-		// Importación masiva de eventos
-		r.Post("/events/bulk-csv", cfg.EventHandler.BulkCreateEventsCSV)
+		// Importación masiva de eventos (solo ADMIN; el importador semanal corre aparte en cmd/import_events)
+		r.With(AuthMiddleware).Post("/events/bulk-csv", cfg.EventHandler.BulkCreateEventsCSV)
 		r.With(OptionalAuthMiddleware).Get("/events", cfg.EventHandler.GetEvents)
 		// Sesión opcional: con sesión, los destacados vienen ordenados según los intereses musicales.
 		r.With(OptionalAuthMiddleware).Get("/events/featured", cfg.EventHandler.GetFeaturedEvents)
@@ -217,8 +217,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(AuthMiddleware).Put("/communities/{id}/promoted-events", cfg.CommunityHandler.UpdatePromotedEvents)
 
 		// 5. Crews Matcher (Event Squads)
-		r.Get("/crews/deck", cfg.CrewHandler.GetDeck)
-		r.Post("/crews/swipe", cfg.CrewHandler.Swipe) // Old fake endpoint
 		r.With(AuthMiddleware).Get("/crews/matches", cfg.MatchHandler.GetMatches)
 		r.With(AuthMiddleware).Post("/crews/{id}/chat", cfg.MatchHandler.EnsureSquadChat)
 		r.With(AuthMiddleware).Post("/events/{eventId}/swipes", cfg.MatchHandler.HandleSwipe)
@@ -296,8 +294,8 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		})
 	})
 
-	// Webhooks (Sin Auth en este caso, se autentican con HMAC o IPNs de MP)
-	r.Post("/v1/webhooks/kyc-provider", cfg.KycHandler.WebhookProvider)
+	// Webhooks: sin sesión; MercadoPago se valida con x-signature (ver transfer_handler.go).
+	// El webhook de KYC se quitó: no hay proveedor externo y no validaba firma.
 	r.Post("/v1/webhooks/mercadopago", cfg.TransferHandler.MercadoPagoWebhook)
 
 	return r

@@ -99,7 +99,7 @@ func kycMultipart(t *testing.T, field string) (*bytes.Buffer, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	part.Write([]byte("jpeg-bytes"))
+	part.Write(bannerImageBytes)
 	mw.Close()
 	return &buf, mw.FormDataContentType()
 }
@@ -126,11 +126,12 @@ func TestKycRoutesRequireJWT(t *testing.T) {
 	}
 }
 
-func TestKycWebhookStaysPublic(t *testing.T) {
+// El webhook de KYC no tenía proveedor ni firma: se quitó del router hasta que exista uno con HMAC.
+func TestKycWebhookIsNotPublished(t *testing.T) {
 	h, _, _, _ := newKycTestHandler()
 	res := httptest.NewRecorder()
 	NewRouter(RouterConfig{KycHandler: h}).ServeHTTP(res, httptest.NewRequest(http.MethodPost, "/v1/webhooks/kyc-provider", nil))
-	if res.Code != http.StatusOK {
+	if res.Code != http.StatusNotFound && res.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status %d", res.Code)
 	}
 }
@@ -213,5 +214,30 @@ func TestKycOwnerCanUseTheirSession(t *testing.T) {
 	h.GetStatus(res, kycRequest(http.MethodGet, "/status", "kyc_sess_owner", "owner", nil, ""))
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), `"sessionId":"kyc_sess_owner"`) {
 		t.Fatalf("status: %d %s", res.Code, res.Body.String())
+	}
+}
+
+func TestKycUploadRejectsNonImagesAndIgnoresClientFilename(t *testing.T) {
+	h, _, s3, _ := newKycTestHandler()
+	upload := func(handler http.HandlerFunc, field string, content []byte) int {
+		body := &bytes.Buffer{}
+		form := multipart.NewWriter(body)
+		part, _ := form.CreateFormFile(field, "../../evil.html")
+		_, _ = part.Write(content)
+		_ = form.Close()
+		res := httptest.NewRecorder()
+		handler(res, kycRequest(http.MethodPost, "/"+field, "kyc_sess_owner", "owner", body, form.FormDataContentType()))
+		return res.Code
+	}
+	if code := upload(h.UploadFace, "faceMedia", []byte("<html></html>")); code != http.StatusUnsupportedMediaType || len(s3.keys) != 0 {
+		t.Fatalf("html face: status %d keys %v", code, s3.keys)
+	}
+	if code := upload(h.UploadDocument, "frontImage", bannerImageBytes); code != http.StatusOK {
+		t.Fatalf("jpeg doc: status %d", code)
+	}
+	for _, key := range s3.keys {
+		if strings.Contains(key, "evil") || !strings.HasSuffix(key, ".jpg") {
+			t.Fatalf("unexpected key %q", key)
+		}
 	}
 }

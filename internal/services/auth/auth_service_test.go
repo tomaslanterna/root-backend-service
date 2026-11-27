@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strings"
 	"context"
 	"errors"
 	"github.com/golang-jwt/jwt/v5"
@@ -59,5 +60,29 @@ func TestLoginAfterResetRejectsOldPasswordAndUsesFreshSessionVersion(t *testing.
 	sessions.err = errors.New("database unavailable")
 	if !errors.Is(svc.ValidateSession(context.Background(), "user", 1), domain.ErrInvalidSession) {
 		t.Fatal("session validator must fail closed")
+	}
+}
+
+func TestLoginRefusesToSignWithoutJWTSecret(t *testing.T) {
+	t.Setenv("JWT_SECRET", "")
+	hash, _ := bcrypt.GenerateFromPassword([]byte("Password123"), bcrypt.MinCost)
+	svc := NewAuthService(&loginTestRepo{user: domain.User{ID: "user", Role: "USER", PasswordHash: string(hash)}})
+	if token, _, err := svc.Login(context.Background(), "person@example.com", "Password123"); err == nil || token != "" {
+		t.Fatalf("signed a session without JWT_SECRET: token=%q err=%v", token, err)
+	}
+}
+
+func TestCheckJWTSecret(t *testing.T) {
+	t.Setenv("JWT_SECRET", "")
+	if _, err := CheckJWTSecret(); err == nil {
+		t.Fatal("missing secret must fail")
+	}
+	t.Setenv("JWT_SECRET", "short")
+	if weak, err := CheckJWTSecret(); err != nil || !weak {
+		t.Fatalf("short secret: weak=%v err=%v", weak, err)
+	}
+	t.Setenv("JWT_SECRET", strings.Repeat("x", MinJWTSecretBytes))
+	if weak, err := CheckJWTSecret(); err != nil || weak {
+		t.Fatalf("long secret: weak=%v err=%v", weak, err)
 	}
 }

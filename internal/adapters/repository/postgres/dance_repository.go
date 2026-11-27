@@ -69,21 +69,42 @@ func (r *danceRepository) InitSchema(ctx context.Context) error {
 	return tx.Commit()
 }
 
+// SaveDanceSession suma pasos a la única sesión de la persona en la fiesta, con dos topes que se
+// aplican en la base (atómicos aunque lleguen dos sincronizaciones juntas):
+//   - ritmo: no más de MaxDanceStepsPerMinute por minuto desde el inicio de la fiesta;
+//   - total: no más de MaxDanceStepsPerSession por fiesta.
+//
+// El inicio y el fin los pone el servidor (inicio de la fiesta y NOW()), nunca el cliente.
+// Lo que exceda los topes se descarta sin error: el cliente sigue funcionando y el ranking no se infla.
 func (r *danceRepository) SaveDanceSession(ctx context.Context, session *domain.DanceSession) error {
 	upsertQuery := `
+		WITH ev AS (
+			SELECT CASE WHEN current_schema() LIKE 'badges_test_%' THEN e.date ELSE e.date AT TIME ZONE 'America/Montevideo' END AS start_at
+			FROM events e WHERE e.id = $3::uuid
+		)
 		INSERT INTO dance_sessions (id, user_id, event_id, steps_count, start_time, end_time, is_validated, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (user_id, event_id) 
-		DO UPDATE SET 
-			steps_count = dance_sessions.steps_count + EXCLUDED.steps_count,
-			end_time = EXCLUDED.end_time,
+		SELECT $1::uuid, $2::uuid, $3::uuid, LEAST($4::int, $8::int,
+				GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - ev.start_at)) / 60 * $7::int))::int),
+			ev.start_at, NOW(), $5::boolean, $6::timestamptz
+		FROM ev
+		ON CONFLICT (user_id, event_id)
+		DO UPDATE SET
+			steps_count = LEAST(
+				dance_sessions.steps_count + $4::int,
+				GREATEST(dance_sessions.steps_count, $8::int),
+				GREATEST(dance_sessions.steps_count,
+					FLOOR(EXTRACT(EPOCH FROM (NOW() - COALESCE(dance_sessions.start_time, dance_sessions.created_at, NOW()))) / 60 * $7::int)::int)
+			),
+			end_time = NOW(),
 			is_validated = dance_sessions.is_validated OR EXCLUDED.is_validated
 	`
 	_, err := r.db.ExecContext(ctx, upsertQuery,
 		session.ID, session.UserID, session.EventID, session.StepsCount,
-		session.StartTime, session.EndTime, session.IsValidated, session.CreatedAt)
-
-	return err
+		session.IsValidated, session.CreatedAt, ports.MaxDanceStepsPerMinute, ports.MaxDanceStepsPerSession)
+	if err != nil {
+		return fmt.Errorf("saving dance session: %w", err)
+	}
+	return nil
 }
 
 func (r *danceRepository) CreatePermanentCrew(ctx context.Context, creatorID string, req ports.CreateCrewRequest) (map[string]interface{}, error) {

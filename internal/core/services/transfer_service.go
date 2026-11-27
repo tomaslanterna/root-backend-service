@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"root-backend-service/internal/core/domain"
 	"root-backend-service/internal/core/ports"
@@ -271,7 +272,7 @@ func (s *transferService) HandleMercadoPagoWebhook(ctx context.Context, topic, i
 		return errors.New("mercadopago integration is not configured")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://api.mercadopago.com/v1/payments/%s", id), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.mercadopago.com/v1/payments/"+url.PathEscape(id), nil)
 	if err != nil {
 		return err
 	}

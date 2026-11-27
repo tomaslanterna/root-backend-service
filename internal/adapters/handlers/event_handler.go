@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -578,8 +579,13 @@ func (h *EventHandler) GetLiveEventStatus(w http.ResponseWriter, r *http.Request
 }
 
 // BulkCreateEventsCSV lee un archivo CSV subido por multipart form y crea los eventos
+// Solo ADMIN: antes estaba abierto y cualquiera podía cargar fiestas en producción.
 func (h *EventHandler) BulkCreateEventsCSV(w http.ResponseWriter, r *http.Request) {
+	if !h.requireRole(w, r, "Solo un administrador puede importar eventos", "ADMIN") {
+		return
+	}
 	// Parsear el form (hasta 10MB)
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20+(1<<20))
 	err := r.ParseMultipartForm(10 << 20)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "No se pudo parsear el formulario")
@@ -606,15 +612,45 @@ func (h *EventHandler) BulkCreateEventsCSV(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// UploadEventImage maneja la subida de una imagen para un evento (ej. banner) al S3 y retorna su key o URL
+const (
+	maxEventImageBytes   = 10 << 20 // por imagen; el frontend ya manda JPEG comprimido
+	maxEventImagesPerReq = 10
+)
+
+// requireRole corta la request con 401/403 si quien llama no tiene alguno de los roles.
+func (h *EventHandler) requireRole(w http.ResponseWriter, r *http.Request, forbiddenMsg string, roles ...string) bool {
+	userID, _ := r.Context().Value(UserIDKey).(string)
+	if h.userRepo == nil || userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "No autorizado")
+		return false
+	}
+	user, err := h.userRepo.GetUserByID(r.Context(), userID)
+	// El repositorio devuelve "user not found" (sin error tipado) cuando la cuenta no existe: eso es 403.
+	if err != nil && !errors.Is(err, sql.ErrNoRows) && err.Error() != "user not found" {
+		log.Printf("requireRole: loading user %s: %v", userID, err)
+		respondWithError(w, http.StatusInternalServerError, "No se pudo verificar el permiso")
+		return false
+	}
+	if user == nil || !hasRole(user.Role, roles...) {
+		respondWithError(w, http.StatusForbidden, forbiddenMsg)
+		return false
+	}
+	return true
+}
+
+// UploadEventImage sube imágenes de eventos (ej. banner) al S3 y devuelve su key y URL.
+// Solo ADMIN o RRPP; solo JPG/PNG/WebP detectados por contenido; la key no usa el nombre del cliente.
 func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) {
 	if h.s3Service == nil {
 		respondWithError(w, http.StatusInternalServerError, "S3 Service not initialized")
 		return
 	}
+	if !h.requireRole(w, r, "Solo un administrador o RRPP puede subir imágenes de eventos", "ADMIN", "RRPP") {
+		return
+	}
 
-	err := r.ParseMultipartForm(50 << 20) // 50MB limit for multiple images
-	if err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxEventImageBytes*maxEventImagesPerReq+(1<<20))
+	if err := r.ParseMultipartForm(maxEventImageBytes); err != nil {
 		respondWithError(w, http.StatusBadRequest, "File too large or invalid")
 		return
 	}
@@ -624,27 +660,36 @@ func (h *EventHandler) UploadEventImage(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, http.StatusBadRequest, "No image files provided (use 'images' form key)")
 		return
 	}
+	if len(files) > maxEventImagesPerReq {
+		respondWithError(w, http.StatusBadRequest, fmt.Sprintf("Máximo %d imágenes por vez", maxEventImagesPerReq))
+		return
+	}
 
 	type UploadResult struct {
 		URL string `json:"url"`
 		Key string `json:"key"`
 	}
-	var results []UploadResult
+	results := []UploadResult{}
 
-	for _, header := range files {
+	for i, header := range files {
 		file, err := header.Open()
 		if err != nil {
-			log.Printf("Error opening file %s: %v", header.Filename, err)
+			log.Printf("Error opening event image %d: %v", i, err)
 			continue
+		}
+		data, contentType, ext, readErr := readImageUpload(file, maxEventImageBytes, false)
+		file.Close()
+		if readErr != nil {
+			status, msg := imageUploadErrorStatus(readErr)
+			respondWithError(w, status, msg)
+			return
 		}
 
 		// time.Now().UnixNano() evita colisiones si se procesan en el mismo milisegundo
-		key := fmt.Sprintf("events/%d_%s", time.Now().UnixNano(), header.Filename)
-		url, s3Err := h.s3Service.UploadToS3(r.Context(), file, key, header.Header.Get("Content-Type"))
-		file.Close()
-
+		key := fmt.Sprintf("events/%d_%d.%s", time.Now().UnixNano(), i, ext)
+		url, s3Err := h.s3Service.UploadToS3(r.Context(), bytes.NewReader(data), key, contentType)
 		if s3Err != nil {
-			log.Printf("Failed to upload image %s to S3: %v", header.Filename, s3Err)
+			log.Printf("Failed to upload event image %s to S3: %v", key, s3Err)
 			continue
 		}
 
@@ -664,14 +709,7 @@ func (h *EventHandler) UpdateEventImage(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, http.StatusInternalServerError, "S3 Service not initialized")
 		return
 	}
-	userID, _ := r.Context().Value(UserIDKey).(string)
-	if h.userRepo == nil || userID == "" {
-		respondWithError(w, http.StatusUnauthorized, "No autorizado")
-		return
-	}
-	user, err := h.userRepo.GetUserByID(r.Context(), userID)
-	if err != nil || user == nil || user.Role != "ADMIN" {
-		respondWithError(w, http.StatusForbidden, "Solo un administrador puede cambiar el flyer de un evento")
+	if !h.requireRole(w, r, "Solo un administrador puede cambiar el flyer de un evento", "ADMIN") {
 		return
 	}
 
@@ -680,24 +718,26 @@ func (h *EventHandler) UpdateEventImage(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, http.StatusBadRequest, "ID de evento requerido")
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 15<<20+(1<<20))
 	if err := r.ParseMultipartForm(15 << 20); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Imagen demasiado grande o inválida")
 		return
 	}
-	file, header, err := r.FormFile("image")
+	file, _, err := r.FormFile("image")
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Falta la imagen (campo 'image')")
 		return
 	}
 	defer file.Close()
-	contentType := header.Header.Get("Content-Type")
-	if !strings.HasPrefix(contentType, "image/") {
-		respondWithError(w, http.StatusBadRequest, "El archivo tiene que ser una imagen")
+	data, contentType, ext, err := readImageUpload(file, 15<<20, false)
+	if err != nil {
+		status, msg := imageUploadErrorStatus(err)
+		respondWithError(w, status, msg)
 		return
 	}
 
-	key := fmt.Sprintf("events/%s/%d_%s", eventID, time.Now().UnixNano(), header.Filename)
-	if _, err := h.s3Service.UploadToS3(r.Context(), file, key, contentType); err != nil {
+	key := fmt.Sprintf("events/%s/%d.%s", eventID, time.Now().UnixNano(), ext)
+	if _, err := h.s3Service.UploadToS3(r.Context(), bytes.NewReader(data), key, contentType); err != nil {
 		log.Printf("Failed to upload banner for event %s: %v", eventID, err)
 		respondWithError(w, http.StatusInternalServerError, "No se pudo subir la imagen")
 		return

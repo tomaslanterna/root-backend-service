@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -272,7 +273,7 @@ func bannerRequest(t *testing.T, eventID string) *http.Request {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = part.Write([]byte("jpeg"))
+	_, _ = part.Write(bannerImageBytes)
 	_ = form.Close()
 	request := httptest.NewRequest(http.MethodPatch, "/v1/events/"+eventID+"/image", body)
 	request.Header.Set("Content-Type", form.FormDataContentType())
@@ -353,5 +354,80 @@ func TestClearRSVPRemovesTheResponseForTheAuthenticatedUser(t *testing.T) {
 	router.ServeHTTP(missing, request)
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("unknown event is a 404, got %d", missing.Code)
+	}
+}
+
+// bannerImageBytes empieza con la firma de un JPEG: http.DetectContentType lo reconoce como image/jpeg.
+var bannerImageBytes = append([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}, make([]byte, 64)...)
+
+func multipartImagesRequest(t *testing.T, method, path, field string, contents ...[]byte) *http.Request {
+	t.Helper()
+	body := &bytes.Buffer{}
+	form := multipart.NewWriter(body)
+	for i, content := range contents {
+		header := textproto.MIMEHeader{}
+		header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename="../../evil-%d.html"`, field, i))
+		header.Set("Content-Type", "image/jpeg") // mentira a propósito: manda el contenido
+		part, err := form.CreatePart(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = part.Write(content)
+	}
+	_ = form.Close()
+	request := httptest.NewRequest(method, path, body)
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	return request.WithContext(context.WithValue(request.Context(), UserIDKey, "user-1"))
+}
+
+func TestUploadEventImageRequiresAdminOrRRPP(t *testing.T) {
+	for _, role := range []string{"USER", "", "MEMBER"} {
+		storage := &bannerS3Stub{}
+		handler := NewEventHandler(&eventServiceStub{}, storage, bannerUserRepoStub{role: role})
+		response := httptest.NewRecorder()
+		handler.UploadEventImage(response, multipartImagesRequest(t, http.MethodPost, "/v1/events/image", "images", bannerImageBytes))
+		if response.Code != http.StatusForbidden || storage.uploadedKey != "" {
+			t.Fatalf("role %q: status = %d, uploaded %q", role, response.Code, storage.uploadedKey)
+		}
+	}
+}
+
+func TestUploadEventImageSniffsContentAndIgnoresClientFilename(t *testing.T) {
+	for _, role := range []string{"ADMIN", "rrpp"} {
+		storage := &bannerS3Stub{}
+		handler := NewEventHandler(&eventServiceStub{}, storage, bannerUserRepoStub{role: role})
+		response := httptest.NewRecorder()
+		handler.UploadEventImage(response, multipartImagesRequest(t, http.MethodPost, "/v1/events/image", "images", bannerImageBytes))
+		if response.Code != http.StatusOK {
+			t.Fatalf("role %q: status = %d, body = %s", role, response.Code, response.Body.String())
+		}
+		if !strings.HasPrefix(storage.uploadedKey, "events/") || !strings.HasSuffix(storage.uploadedKey, ".jpg") || strings.Contains(storage.uploadedKey, "evil") {
+			t.Fatalf("unexpected key %q", storage.uploadedKey)
+		}
+	}
+
+	storage := &bannerS3Stub{}
+	handler := NewEventHandler(&eventServiceStub{}, storage, bannerUserRepoStub{role: "ADMIN"})
+	response := httptest.NewRecorder()
+	handler.UploadEventImage(response, multipartImagesRequest(t, http.MethodPost, "/v1/events/image", "images", []byte("<html><script>alert(1)</script></html>")))
+	if response.Code != http.StatusUnsupportedMediaType || storage.uploadedKey != "" {
+		t.Fatalf("HTML must be rejected: status = %d, uploaded %q", response.Code, storage.uploadedKey)
+	}
+}
+
+func TestBulkCreateEventsCSVIsAdminOnly(t *testing.T) {
+	csv := []byte("title,date\nFiesta,2026-12-01\n")
+	handler := NewEventHandler(&eventServiceStub{}, &bannerS3Stub{}, bannerUserRepoStub{role: "USER"})
+	response := httptest.NewRecorder()
+	handler.BulkCreateEventsCSV(response, multipartImagesRequest(t, http.MethodPost, "/v1/events/bulk-csv", "file", csv))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", response.Code)
+	}
+
+	router := NewRouter(RouterConfig{EventHandler: handler})
+	anonymous := httptest.NewRecorder()
+	router.ServeHTTP(anonymous, httptest.NewRequest(http.MethodPost, "/v1/events/bulk-csv", bytes.NewReader(csv)))
+	if anonymous.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous status = %d, want 401", anonymous.Code)
 	}
 }

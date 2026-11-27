@@ -69,7 +69,8 @@ func extractToken(r *http.Request) string {
 func parseToken(tokenStr string) (string, error) {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "default_fallback_secret"
+		// Nunca validar con un secreto por defecto: sin JWT_SECRET ningún token es válido.
+		return "", fmt.Errorf("JWT_SECRET is not configured")
 	}
 
 	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {

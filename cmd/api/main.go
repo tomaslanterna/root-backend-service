@@ -43,6 +43,13 @@ func main() {
 		log.Println("No .env file found, using system environment variables")
 	}
 
+	// Sin JWT_SECRET el servidor no arranca: antes firmaba con un secreto fijo conocido.
+	if weak, err := auth.CheckJWTSecret(); err != nil {
+		log.Fatalf("❌ %v: definí un secreto aleatorio de al menos %d bytes", err, auth.MinJWTSecretBytes)
+	} else if weak {
+		log.Printf("⚠️ JWT_SECRET tiene menos de %d bytes: conviene rotarlo por uno más largo", auth.MinJWTSecretBytes)
+	}
+
 	// 1. Conexión a la Base de Datos PostgreSQL
 	dbURL := os.Getenv("DATABASE_URL")
 	db, err := postgres.NewPostgresDB(dbURL)
@@ -383,7 +390,6 @@ func main() {
 	eventHandler := handlers.NewEventHandler(eventService, s3Service, userRepo)
 	eventHandler.SetTempCrewService(tempCrewService)
 	eventHandler.SetEventRRPPService(coreServices.NewEventRRPPService(eventRRPPRepo))
-	crewHandler := handlers.NewCrewHandler()
 	searchHandler := handlers.NewSearchHandler(searchService, s3Service)
 	kycHandler := handlers.NewKycHandler(s3Service, kycProvider, kycRepo, userRepo, notificationService)
 
@@ -445,7 +451,6 @@ func main() {
 		PostHandler:         postHandler,
 		EventHandler:        eventHandler,
 		CommunityHandler:    communityHandler,
-		CrewHandler:         crewHandler,
 		KycHandler:          kycHandler,
 		SearchHandler:       searchHandler,
 		ChatHandler:         chatHandler,
