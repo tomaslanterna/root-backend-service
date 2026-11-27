@@ -15,6 +15,8 @@ func NewEventSurveyRepository(db *sql.DB) *EventSurveyRepository {
 	return &EventSurveyRepository{db: db}
 }
 
+// InitSchema está congelado: es parte de la migración 1 (migrations/baseline.go). No editar;
+// un cambio de esquema nuevo va en un archivo de migrations/sql/.
 func (r *EventSurveyRepository) InitSchema(ctx context.Context) error {
 	return r.initSchema(ctx, true)
 }

@@ -19,6 +19,7 @@ The application is built with **Go (Golang)**.
 - **Go Best Practices:** Write idiomatic Go code. Use standard libraries where possible.
 - **Clean Architecture Rules:** Never import `adapters` into `core`. Core domain and logic must remain framework-agnostic. Dependency injection must happen at the entrypoint (`main.go`).
 - **Database Rules (PostgreSQL):**
+  - **Schema changes go in versioned migrations** (goose): add `internal/adapters/repository/postgres/migrations/sql/NNNNN_description.sql`. Never add statements to a repository `InitSchema`: those are frozen as migration 1 (the baseline) and no longer run on startup. See that folder's `README.md`.
   - Be careful with `JSONB` columns. Do not insert empty strings `""` into JSONB columns as it causes silent transaction rollbacks. Use `NULLIF($n, '')::jsonb` in SQL queries or handle nulls properly in Go.
 - **Error Handling:** 
   - Use clear and context-rich error wrapping (`fmt.Errorf("...: %w", err)`).

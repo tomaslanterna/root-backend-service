@@ -17,6 +17,7 @@ import (
 	"root-backend-service/internal/adapters/handlers"
 	pushadapter "root-backend-service/internal/adapters/push"
 	"root-backend-service/internal/adapters/repository/postgres"
+	"root-backend-service/internal/adapters/repository/postgres/migrations"
 	"root-backend-service/internal/core/ports"
 	aiservice "root-backend-service/internal/services/ai"
 	"root-backend-service/internal/services/auth"
@@ -34,7 +35,7 @@ import (
 )
 
 func main() {
-	initializeSchema := flag.Bool("initialize-schema", true, "Initialize schema on startup (disable after a separately verified migration)")
+	initializeSchema := flag.Bool("initialize-schema", true, "Apply pending database migrations on startup (internal/adapters/repository/postgres/migrations)")
 	backgroundWorkers := flag.Bool("background-workers", true, "Process push/email queues (disable for a local API sharing the live database)")
 	listenAddress := flag.String("listen-address", "", "Override listening address, e.g. 127.0.0.1:8080")
 	flag.Parse()
@@ -50,6 +51,12 @@ func main() {
 		log.Fatalf("❌ Error conectando a PostgreSQL: %v", err)
 	}
 	defer db.Close()
+	// El esquema se aplica con migraciones versionadas antes de usar cualquier repositorio.
+	if *initializeSchema {
+		if err := migrations.Up(context.Background(), db); err != nil {
+			log.Fatalf("❌ Error aplicando migraciones: %v", err)
+		}
+	}
 	pushCtx, stopPush := context.WithCancel(context.Background())
 	defer stopPush()
 
@@ -73,25 +80,7 @@ func main() {
 	eventRRPPRepo := postgres.NewEventRRPPRepository(db)
 	moderationRepo := postgres.NewModerationRepository(db)
 
-	initSchema := func(initialize func(context.Context) error) error {
-		if !*initializeSchema {
-			return nil
-		}
-		return initialize(context.Background())
-	}
-	if err := initSchema(messageRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize the required message schema: %v", err)
-	}
-	if err := initSchema(pushRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize push schema: %v", err)
-	}
-	if err := initSchema(notificationRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize notification schema: %v", err)
-	}
 	recoveryRepo := postgres.NewPasswordRecoveryRepository(db)
-	if err := initSchema(recoveryRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize password recovery schema: %v", err)
-	}
 	var recoverySender ports.PasswordResetSender
 	emailSender, err := emailadapter.NewTransactional(os.Getenv("PASSWORD_RESET_EMAIL_PROVIDER"), os.Getenv("PASSWORD_RESET_EMAIL_API_KEY"), os.Getenv("PASSWORD_RESET_EMAIL_FROM"))
 	if err != nil {
@@ -290,30 +279,6 @@ func main() {
 			}
 		}
 	}()
-	if err := initSchema(matchRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize matcher chat indexes: %v", err)
-	}
-	if err := initSchema(eventRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize the required event schema: %v", err)
-	}
-	if err := initSchema(artistRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize the required artist schema: %v", err)
-	}
-	if err := initSchema(badgeRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize attendance schema: %v", err)
-	}
-	if err := initSchema(surveyRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize the required survey schema: %v", err)
-	}
-	if err := initSchema(communityRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize the required community schema: %v", err)
-	}
-	if err := danceRepo.InitSchema(context.Background()); err != nil {
-		log.Fatalf("Could not initialize the required dance/crew schema: %v", err)
-	}
-	if err := initSchema(tempCrewRepo.InitSchema); err != nil {
-		log.Fatalf("Could not initialize the required temporary crew schema: %v", err)
-	}
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo, sessionCache)

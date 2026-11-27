@@ -18,6 +18,8 @@ func NewNotificationRepository(db *sql.DB) *NotificationRepository {
 	return &NotificationRepository{db: db}
 }
 
+// InitSchema está congelado: es parte de la migración 1 (migrations/baseline.go). No editar;
+// un cambio de esquema nuevo va en un archivo de migrations/sql/.
 func (r *NotificationRepository) InitSchema(ctx context.Context) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

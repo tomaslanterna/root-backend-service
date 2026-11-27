@@ -36,6 +36,8 @@ var _ ports.TempCrewRepository = (*TempCrewRepository)(nil)
 
 func NewTempCrewRepository(db *sql.DB) *TempCrewRepository { return &TempCrewRepository{db: db} }
 
+// InitSchema está congelado: es parte de la migración 1 (migrations/baseline.go). No editar;
+// un cambio de esquema nuevo va en un archivo de migrations/sql/.
 func (r *TempCrewRepository) InitSchema(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()

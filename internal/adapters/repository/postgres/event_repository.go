@@ -27,6 +27,8 @@ func NewEventRepository(db *sql.DB) ports.EventRepository {
 
 // InitSchema applies all event schema changes atomically. Returning failures
 // prevents the API from starting with only part of the required schema.
+// InitSchema está congelado: es parte de la migración 1 (migrations/baseline.go). No editar;
+// un cambio de esquema nuevo va en un archivo de migrations/sql/.
 func (r *EventRepository) InitSchema(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()

@@ -35,6 +35,8 @@ var eventRRPPSchema = []string{
 	`CREATE INDEX IF NOT EXISTS event_rrpps_user_idx ON event_rrpps (user_id)`,
 }
 
+// InitSchema lo usan los tests de integración; en el arranque la tabla la crea
+// migrations/sql/00002_event_rrpps.sql. Si cambia una, cambiar la otra.
 func (r *EventRRPPRepository) InitSchema(ctx context.Context) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

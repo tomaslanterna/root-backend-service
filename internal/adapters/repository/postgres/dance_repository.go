@@ -32,6 +32,8 @@ const crewStepsScope = `(CASE WHEN s.type = 'temporary'
 		THEN ds.event_id = s.event_id
 		ELSE ds.start_time >= (COALESCE(sm.joined_at, s.created_at, TIMESTAMP '-infinity') AT TIME ZONE 'UTC') END)`
 
+// InitSchema está congelado: es parte de la migración 1 (migrations/baseline.go). No editar;
+// un cambio de esquema nuevo va en un archivo de migrations/sql/.
 func (r *danceRepository) InitSchema(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
