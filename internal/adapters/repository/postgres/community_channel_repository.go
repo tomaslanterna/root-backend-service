@@ -429,7 +429,7 @@ func (r *communityRepository) GetPromotedEvents(ctx context.Context, communityID
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), NULL AS status,
-			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at, e.slug
 		FROM community_promoted_events cpe
 		JOIN events e ON e.id = cpe.event_id
 		LEFT JOIN LATERAL (

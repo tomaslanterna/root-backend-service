@@ -49,8 +49,8 @@ func (s *EventService) GetEventByID(ctx context.Context, id string, currentUserI
 		return nil, err
 	}
 
-	// Fetch lineup
-	lineup, err := s.artistRepo.GetEventLineup(ctx, id)
+	// Fetch lineup (con el id canónico: id puede ser el slug)
+	lineup, err := s.artistRepo.GetEventLineup(ctx, event.ID)
 	if err == nil && len(lineup) > 0 {
 		event.Artists = lineup
 	}

@@ -72,6 +72,9 @@ func main() {
 	tempCrewRepo := postgres.NewTempCrewRepository(db)
 	eventRRPPRepo := postgres.NewEventRRPPRepository(db)
 	moderationRepo := postgres.NewModerationRepository(db)
+	afterRepo := postgres.NewAfterRepository(db)
+	eventSubmissionRepo := postgres.NewEventSubmissionRepository(db)
+	viewerAccessRepo := postgres.NewViewerAccessRepository(db)
 
 	initSchema := func(initialize func(context.Context) error) error {
 		if !*initializeSchema {
@@ -314,6 +317,18 @@ func main() {
 	if err := initSchema(tempCrewRepo.InitSchema); err != nil {
 		log.Fatalf("Could not initialize the required temporary crew schema: %v", err)
 	}
+	if err := initSchema(afterRepo.InitSchema); err != nil {
+		log.Fatalf("Could not initialize the afters schema: %v", err)
+	}
+	if err := initSchema(eventSubmissionRepo.InitSchema); err != nil {
+		log.Fatalf("Could not initialize the event submissions schema: %v", err)
+	}
+	// El embed `afters` del detalle del evento consulta las tablas de afters: solo se activa si existen.
+	if ready, err := afterRepo.SchemaReady(context.Background()); err != nil || !ready {
+		log.Printf("Afters embed disabled in event detail: schema not ready (ready=%v, err=%v)", ready, err)
+	} else {
+		postgres.EnableAftersEmbed(eventRepo)
+	}
 
 	// 3. Inicialización de Servicios
 	authService := auth.NewAuthService(userRepo, sessionCache)
@@ -367,6 +382,10 @@ func main() {
 	coreServices.UseTempCrewModerator(tempCrewService, contentModerator)
 	coreServices.UseDanceModerator(danceService, contentModerator)
 	coreServices.UseChatBlocks(chatService, moderationRepo)
+	afterService := coreServices.NewAfterService(afterRepo, viewerAccessRepo)
+	coreServices.UseAfterModerator(afterService, contentModerator)
+	eventSubmissionService := coreServices.NewEventSubmissionService(eventSubmissionRepo, viewerAccessRepo)
+	coreServices.UseEventSubmissionModerator(eventSubmissionService, contentModerator)
 
 	// Inyectar dependencias para KYC
 	s3Service, err := s3service.NewS3Service(context.Background())
@@ -461,6 +480,10 @@ func main() {
 		MatchHandler:        matchHandler,
 		DanceHandler:        danceHandler,
 		TempCrewHandler:     tempCrewHandler,
+		// Afters y "Mandanos tu evento" (AFTERS.md).
+		AfterHandler:           handlers.NewAfterHandler(afterService, s3Service),
+		EventSubmissionHandler: handlers.NewEventSubmissionHandler(eventSubmissionService, s3Service),
+		ViewerAccess:           viewerAccessRepo,
 	})
 
 	// 6. Configuración y Arranque del Servidor HTTP

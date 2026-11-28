@@ -19,6 +19,18 @@ const anonymousUserID = "00000000-0000-0000-0000-000000000000"
 
 type EventRepository struct {
 	db *sql.DB
+	// aftersEmbed agrega la columna `afters` (subconsulta) al detalle. Se activa con EnableAftersEmbed una vez que
+	// existen las tablas de afters: sin ellas la consulta del detalle fallaría.
+	aftersEmbed bool
+}
+
+// EnableAftersEmbed hace que GetEventByID traiga el embed `afters` en la misma consulta. false si repo no es de este paquete.
+func EnableAftersEmbed(repo ports.EventRepository) bool {
+	r, ok := repo.(*EventRepository)
+	if ok {
+		r.aftersEmbed = true
+	}
+	return ok
 }
 
 func NewEventRepository(db *sql.DB) ports.EventRepository {
@@ -101,6 +113,9 @@ func (r *EventRepository) InitSchema(ctx context.Context) error {
 			ON comments (target_id, timestamp DESC, id DESC)
 			WHERE target_type = 'event'`,
 	}
+
+	// Slug para las URLs (/events/danzeria-presenta-greggio): ver event_slug.go.
+	statements = append(statements, eventSlugSchema()...)
 
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
@@ -199,7 +214,7 @@ func (r *EventRepository) GetEvents(ctx context.Context, filter domain.EventFilt
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), ur.status,
-			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at, e.slug
 		FROM events e
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) FILTER (WHERE status = 'going') AS going_count,
@@ -233,6 +248,18 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 		currentUserID = anonymousUserID
 	}
 
+	// Los afters (embed `afters`) van en esta misma consulta, como subconsulta: no repiten la fila del evento.
+	// id puede ser el UUID o el slug (/events/danzeria-presenta-greggio).
+	lookup, lookupValue := eventLookupClause("e", "$2", id)
+	aftersColumn, args := "", []interface{}{currentUserID, lookupValue}
+	if r.aftersEmbed {
+		var viewer interface{}
+		if currentUserID != anonymousUserID {
+			viewer = nullUUID(currentUserID)
+		}
+		aftersColumn = ",\n\t\t\t" + AfterEventEmbedSQL("e.id", "$3::uuid") + " AS afters"
+		args = append(args, viewer)
+	}
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT e.id, e.title, e.producer_id, e.date, e.end_date, e.location, e.latitude, e.longitude,
 			COALESCE(e.cinematic_banner_url, ''), COALESCE(e.description, ''),
@@ -240,7 +267,7 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), ur.status,
 			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at,
-			e.geofence_radius_meters
+			e.geofence_radius_meters, e.slug`+aftersColumn+`
 		FROM events e
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) FILTER (WHERE status = 'going') AS going_count,
@@ -248,7 +275,7 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 			FROM event_rsvps WHERE event_id = e.id
 		) counts ON TRUE
 		LEFT JOIN event_rsvps ur ON ur.event_id = e.id AND ur.user_id::text = $1
-		WHERE e.id::text = $2`, currentUserID, id)
+		WHERE `+lookup, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying event by id: %w", err)
 	}
@@ -262,7 +289,7 @@ func (r *EventRepository) GetEventByID(ctx context.Context, id string, currentUs
 		return nil, sql.ErrNoRows
 	}
 	rows.Close()
-	if err := r.db.QueryRowContext(ctx, `SELECT NULLIF(to_jsonb(e)->>'department',''),NULLIF(to_jsonb(e)->>'country','') FROM events e WHERE id=$1`, id).Scan(&events[0].Department, &events[0].Country); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT NULLIF(to_jsonb(e)->>'department',''),NULLIF(to_jsonb(e)->>'country','') FROM events e WHERE id=$1`, events[0].ID).Scan(&events[0].Department, &events[0].Country); err != nil {
 		return nil, fmt.Errorf("reading event location metadata: %w", err)
 	}
 	return &events[0], nil
@@ -497,8 +524,15 @@ func (r *EventRepository) SearchEvents(ctx context.Context, query string) ([]dom
 }
 
 func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
+	// Las 22 primeras columnas son fijas. Después pueden venir geofence_radius_meters (siempre en la 23),
+	// slug y, solo en el detalle, afters: esas se reconocen por el nombre.
 	cols, _ := rows.Columns()
-	hasGeofenceRadius := len(cols) >= 23
+	hasAfters := false
+	for _, col := range cols {
+		if col == "afters" {
+			hasAfters = true
+		}
+	}
 	events := make([]domain.Event, 0)
 	for rows.Next() {
 		var event domain.Event
@@ -516,8 +550,19 @@ func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
 			&event.IsFeatured, &event.CreatedAt, &event.GoingCount, &event.NotGoingCount, &userRSVP,
 			&ticketTiers, &ticketSource, &ticketUrl, &ticketInfoFetchedAt,
 		}
-		if hasGeofenceRadius {
-			dest = append(dest, &geofenceRadius)
+		var slug sql.NullString
+		var aftersRaw []byte
+		for i := 22; i < len(cols); i++ {
+			switch {
+			case cols[i] == "slug":
+				dest = append(dest, &slug)
+			case cols[i] == "afters":
+				dest = append(dest, &aftersRaw)
+			case i == 22:
+				dest = append(dest, &geofenceRadius)
+			default:
+				dest = append(dest, new(interface{}))
+			}
 		}
 
 		if err := rows.Scan(dest...); err != nil {
@@ -571,6 +616,10 @@ func scanEvents(rows *sql.Rows) ([]domain.Event, error) {
 		}
 
 		event.Lineup = lineup
+		event.Slug = slug.String
+		if hasAfters {
+			event.Afters = decodeAftersEmbed(aftersRaw)
+		}
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
@@ -586,7 +635,7 @@ func (r *EventRepository) GetPendingSurveys(ctx context.Context, userID string) 
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			0 AS going_count, 0 AS not_going_count, ur.status,
-			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at, e.slug
 		FROM events e
 		JOIN event_attendance attendance ON attendance.event_id = e.id AND attendance.user_id::text = $1
 		LEFT JOIN event_rsvps ur ON ur.event_id = e.id AND ur.user_id = attendance.user_id
@@ -629,7 +678,7 @@ func (r *EventRepository) GetUserEvents(ctx context.Context, username string) ([
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			COALESCE(counts.going_count, 0), COALESCE(counts.not_going_count, 0), er.status,
-			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at, e.slug
 		FROM events e
 		JOIN event_rsvps er ON e.id = er.event_id
 		JOIN users u ON u.id = er.user_id
@@ -726,7 +775,7 @@ func (r *EventRepository) GetLiveEventStatus(ctx context.Context, userID string,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			0 AS going_count, 0 AS not_going_count, er.status,
 			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at,
-			e.geofence_radius_meters
+			e.geofence_radius_meters, e.slug
 		FROM events e
 		JOIN event_rsvps er ON e.id = er.event_id
 		WHERE er.user_id::text = $1 
@@ -830,7 +879,7 @@ func (r *EventRepository) GetTodayGoingEvent(ctx context.Context, userID string)
 			COALESCE(e.lineup, '{}'), e.genre, e.price,
 			COALESCE(e.is_featured, false), COALESCE(e.created_at, NOW()),
 			0 AS going_count, 0 AS not_going_count, er.status,
-			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at
+			e.ticket_tiers, e.ticket_source, e.ticket_url, e.ticket_info_fetched_at, e.slug
 		FROM events e
 		JOIN event_rsvps er ON e.id = er.event_id
 		WHERE er.user_id::text = $1

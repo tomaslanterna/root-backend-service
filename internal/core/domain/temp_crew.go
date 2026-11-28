@@ -58,6 +58,8 @@ type TempCrewEventRef struct {
 	Date               time.Time `json:"date"`
 	Location           string    `json:"location"`
 	CinematicBannerURL *string   `json:"cinematicBannerUrl"`
+	// Slug para el link al evento (/events/<slug>).
+	Slug string `json:"slug,omitempty"`
 }
 
 // TempCrewSummary es la forma común de los listados. IsAdmitting es el valor efectivo:
