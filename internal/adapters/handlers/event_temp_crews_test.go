@@ -22,13 +22,15 @@ type eventTempCrewsService struct {
 	summary *domain.TempCrewsEventSummary
 	err     error
 	viewer  string
+	eventID string
 	started chan struct{}
 	other   <-chan struct{}
 	waited  bool
 }
 
-func (s *eventTempCrewsService) EventSummary(_ context.Context, _, viewerID string) (*domain.TempCrewsEventSummary, error) {
+func (s *eventTempCrewsService) EventSummary(_ context.Context, eventID, viewerID string) (*domain.TempCrewsEventSummary, error) {
 	s.viewer = viewerID
+	s.eventID = eventID
 	if s.started != nil {
 		close(s.started)
 		select {
@@ -72,11 +74,19 @@ func summaryFixture(n int, viewerCrew *string) *domain.TempCrewsEventSummary {
 	return &domain.TempCrewsEventSummary{Total: 5, ViewerCrewID: viewerCrew, Preview: preview}
 }
 
+// detailEventUUID: la URL trae el UUID (las crews se piden en paralelo con el evento).
+const detailEventUUID = "11111111-2222-4333-8444-555555555555"
+
 func getEventDetail(t *testing.T, handler *EventHandler, user string) (*httptest.ResponseRecorder, map[string]json.RawMessage) {
+	t.Helper()
+	return getEventDetailAt(t, handler, user, detailEventUUID)
+}
+
+func getEventDetailAt(t *testing.T, handler *EventHandler, user, idOrSlug string) (*httptest.ResponseRecorder, map[string]json.RawMessage) {
 	t.Helper()
 	router := chi.NewRouter()
 	router.Get("/events/{id}", handler.GetEventByID)
-	request := httptest.NewRequest(http.MethodGet, "/events/event-1", nil)
+	request := httptest.NewRequest(http.MethodGet, "/events/"+idOrSlug, nil)
 	if user != "" {
 		request = request.WithContext(context.WithValue(request.Context(), UserIDKey, user))
 	}
@@ -198,6 +208,19 @@ func TestEventDetailFetchesEventAndCrewsConcurrently(t *testing.T) {
 	response, _ := getEventDetail(t, handler, "user-1")
 	if response.Code != http.StatusOK || !events.waited || !crews.waited {
 		t.Fatalf("each query must start while the other is still running: status=%d event=%v crews=%v", response.Code, events.waited, crews.waited)
+	}
+}
+
+func TestEventDetailBySlugAsksCrewsWithTheEventID(t *testing.T) {
+	handler := NewEventHandler(&eventServiceStub{}, nil, nil)
+	crews := &eventTempCrewsService{summary: summaryFixture(1, nil)}
+	handler.SetTempCrewService(crews)
+	response, body := getEventDetailAt(t, handler, "user-1", "danzeria-presenta-greggio")
+	if response.Code != http.StatusOK || crews.eventID != "event-1" {
+		t.Fatalf("with a slug the crews use the event id from the detail: status=%d crews eventID=%q", response.Code, crews.eventID)
+	}
+	if _, present := body["tempCrews"]; !present {
+		t.Fatalf("tempCrews still included: %s", response.Body.String())
 	}
 }
 

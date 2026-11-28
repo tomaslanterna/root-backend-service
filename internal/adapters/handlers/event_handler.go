@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 const (
@@ -223,18 +224,25 @@ func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 	crewsCtx, cancelCrews := context.WithCancel(r.Context())
 	defer cancelCrews()
 	var crewsDone chan *domain.TempCrewsEventSummary
-	if h.tempCrews != nil {
+	startCrews := func(id string) {
+		if h.tempCrews == nil {
+			return
+		}
 		crewsDone = make(chan *domain.TempCrewsEventSummary, 1)
 		go func() {
-			summary, err := h.tempCrews.EventSummary(crewsCtx, eventID, currentUserID)
+			summary, err := h.tempCrews.EventSummary(crewsCtx, id, currentUserID)
 			if err != nil {
 				if crewsCtx.Err() == nil {
-					log.Printf("event %s: temporary crews summary unavailable: %v", eventID, err)
+					log.Printf("event %s: temporary crews summary unavailable: %v", id, err)
 				}
 				summary = nil
 			}
 			crewsDone <- summary
 		}()
+	}
+	// La URL puede traer el UUID o el slug. Con el UUID las crews arrancan ya; con el slug, apenas se sabe el id.
+	if _, err := uuid.Parse(eventID); err == nil {
+		startCrews(eventID)
 	}
 	waitCrews := func() *domain.TempCrewsEventSummary {
 		if crewsDone == nil {
@@ -256,6 +264,9 @@ func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusInternalServerError, "Error obteniendo el evento")
 		return
 	}
+	if crewsDone == nil {
+		startCrews(event.ID)
+	}
 	// RRPPs: consulta aparte (como el lineup), con el id canónico que devolvió el repositorio.
 	rrpps := []domain.EventRRPP{}
 	if h.rrpps != nil {
@@ -273,6 +284,9 @@ func (h *EventHandler) GetEventByID(w http.ResponseWriter, r *http.Request) {
 	}
 	h.enrichEventImage(r.Context(), event)
 	h.resolveRRPPAvatars(r.Context(), rrpps)
+	if event.Afters != nil {
+		signAfterSummaries(r.Context(), h.s3Service, event.Afters.Preview)
+	}
 	response := eventDetailResponse{Event: event, TempCrews: waitCrews(), RRPPs: rrpps}
 	if response.TempCrews != nil {
 		for i := range response.TempCrews.Preview {

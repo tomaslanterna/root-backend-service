@@ -34,6 +34,10 @@ type RouterConfig struct {
 	PasswordRecovery    *PasswordRecoveryHandler
 	Moderation          *ModerationHandler
 	ValidateSession     ports.SessionValidator
+	// Afters y "Mandanos tu evento". ViewerAccess alimenta RequireKyc/RequireAdmin; sin él esos endpoints responden 503.
+	AfterHandler           *AfterHandler
+	EventSubmissionHandler *EventSubmissionHandler
+	ViewerAccess           ports.ViewerAccessRepository
 }
 
 func NewRouter(cfg RouterConfig) http.Handler {
@@ -178,6 +182,39 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			r.With(AuthMiddleware).Post("/events/{id}/temp-crews", cfg.TempCrewHandler.Create)
 			r.With(AuthMiddleware).Get("/users/me/temp-crews", cfg.TempCrewHandler.Mine)
 			r.With(AuthMiddleware).Get("/temp-crews/discover", cfg.TempCrewHandler.Discover)
+		}
+		// Afters: [KYC] = solo identidad verificada (RequireKyc). Ver un after o pedir entrar pide sesión y +18 (servicio).
+		if cfg.AfterHandler != nil {
+			kyc := RequireKyc(cfg.ViewerAccess)
+			r.With(OptionalAuthMiddleware).Get("/events/{id}/afters", cfg.AfterHandler.ListForEvent)
+			r.With(OptionalAuthMiddleware).Get("/afters", cfg.AfterHandler.List)
+			r.With(AuthMiddleware, kyc).Post("/afters/cover", cfg.AfterHandler.UploadCover)
+			r.With(AuthMiddleware, kyc).Post("/afters", cfg.AfterHandler.Create)
+			r.With(AuthMiddleware).Get("/afters/{id}", cfg.AfterHandler.Detail)
+			r.With(AuthMiddleware, kyc).Patch("/afters/{id}", cfg.AfterHandler.Update)
+			r.With(AuthMiddleware).Delete("/afters/{id}", cfg.AfterHandler.Remove)
+			r.With(AuthMiddleware).Post("/afters/{id}/join", cfg.AfterHandler.Join)
+			r.With(AuthMiddleware).Delete("/afters/{id}/join", cfg.AfterHandler.Leave)
+			r.With(AuthMiddleware).Get("/afters/{id}/requests", cfg.AfterHandler.ListRequests)
+			r.With(AuthMiddleware).Post("/afters/{id}/requests/{userId}/accept", cfg.AfterHandler.Accept)
+			r.With(AuthMiddleware).Post("/afters/{id}/requests/{userId}/reject", cfg.AfterHandler.Reject)
+			r.With(AuthMiddleware).Post("/afters/{id}/report", cfg.AfterHandler.Report)
+			admin := r.With(AuthMiddleware, RequireAdmin(cfg.ViewerAccess))
+			admin.Get("/admin/afters", cfg.AfterHandler.AdminList)
+			admin.Post("/admin/afters/{id}/restore", cfg.AfterHandler.AdminRestore)
+			admin.Post("/admin/afters/{id}/remove", cfg.AfterHandler.AdminRemove)
+		}
+		// Mandanos tu evento.
+		if cfg.EventSubmissionHandler != nil {
+			kyc := RequireKyc(cfg.ViewerAccess)
+			r.With(OptionalAuthMiddleware).Get("/events/similar", cfg.EventSubmissionHandler.Similar)
+			r.With(AuthMiddleware, kyc).Post("/event-submissions/flyer", cfg.EventSubmissionHandler.UploadFlyer)
+			r.With(AuthMiddleware, kyc).Post("/event-submissions", cfg.EventSubmissionHandler.Create)
+			r.With(AuthMiddleware).Get("/users/me/event-submissions", cfg.EventSubmissionHandler.Mine)
+			admin := r.With(AuthMiddleware, RequireAdmin(cfg.ViewerAccess))
+			admin.Get("/admin/event-submissions", cfg.EventSubmissionHandler.AdminList)
+			admin.Post("/admin/event-submissions/{id}/publish", cfg.EventSubmissionHandler.Publish)
+			admin.Post("/admin/event-submissions/{id}/reject", cfg.EventSubmissionHandler.Reject)
 		}
 		r.Route("/events/{id}/comments", func(r chi.Router) {
 			r.With(OptionalAuthMiddleware).Get("/", cfg.EventHandler.GetEventComments)

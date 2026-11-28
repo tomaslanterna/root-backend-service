@@ -101,7 +101,7 @@ func isUniqueViolation(err error, constraint string) bool {
 const tempCrewSelect = `SELECT s.id, s.name, COALESCE(s.plan, ''), COALESCE(s.capacity, 0), mc.n,
  (COALESCE(s.is_admitting, TRUE) AND NOT ` + eventEndedExpr + ` AND mc.n < COALESCE(s.capacity, 0)),
  hu.id, hu.name, hu.username, hu.avatar_url,
- e.id, e.title, e.date, e.location, e.cinematic_banner_url,
+ e.id, e.title, e.date, e.location, e.cinematic_banner_url, e.slug,
  vm.role, vr.status,
  (SELECT COUNT(*) FROM crew_join_requests q WHERE q.crew_id = s.id AND q.status = 'pending'),
  ` + eventEndedExpr + `,
@@ -132,7 +132,7 @@ func scanTempCrew(scan func(dest ...interface{}) error, lead ...interface{}) (te
 	s := &row.summary
 	dest := append(lead, &s.ID, &s.Name, &s.Plan, &s.Capacity, &s.MemberCount, &s.IsAdmitting,
 		&s.Host.UserID, &s.Host.Name, &s.Host.Username, &hostAvatar,
-		&s.Event.ID, &s.Event.Title, &s.Event.Date, &s.Event.Location, &banner,
+		&s.Event.ID, &s.Event.Title, &s.Event.Date, &s.Event.Location, &banner, &s.Event.Slug,
 		&role, &requestStatus, &row.pending, &s.EventEnded, &preview)
 	err := scan(dest...)
 	if err != nil {

@@ -44,6 +44,10 @@ type Event struct {
 	TicketURL            *string       `json:"ticketUrl,omitempty"`
 	TicketInfoFetched    *time.Time    `json:"ticketInfoFetchedAt,omitempty"`
 	CreatedAt            time.Time     `json:"createdAt"`
+	// Slug para la URL (/events/danzeria-presenta-greggio). Lo arma la base al crear el evento y no cambia.
+	Slug string `json:"slug,omitempty"`
+	// Afters solo viene en el detalle (GET /v1/events/:id), cargado en la misma consulta del evento.
+	Afters *AftersEventSummary `json:"afters,omitempty"`
 }
 
 type Attendee struct {

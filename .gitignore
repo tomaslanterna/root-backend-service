@@ -37,3 +37,6 @@ main
 
 # IDEs and Editors
 .vscode/
+
+# Delve (debugger de VS Code)
+__debug_bin*

@@ -77,7 +77,7 @@ func TestTempCrewPostgresIntegration(t *testing.T) {
 		`CREATE TABLE users(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, username TEXT UNIQUE, avatar_url TEXT,
  is_kyc_verified BOOLEAN DEFAULT FALSE, followers TEXT[] DEFAULT '{}', following TEXT[] DEFAULT '{}')`,
 		`CREATE TABLE events(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), title TEXT NOT NULL, date TIMESTAMP NOT NULL,
- end_date TIMESTAMPTZ, location TEXT NOT NULL DEFAULT 'Montevideo', cinematic_banner_url TEXT)`,
+ end_date TIMESTAMPTZ, location TEXT NOT NULL DEFAULT 'Montevideo', cinematic_banner_url TEXT, created_at TIMESTAMP DEFAULT now())`,
 		`CREATE TABLE squads(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), event_id UUID REFERENCES events(id) ON DELETE CASCADE,
  name VARCHAR NOT NULL, chat_room_id UUID, status VARCHAR NOT NULL DEFAULT 'forming', created_at TIMESTAMP DEFAULT now(),
  expires_at TIMESTAMP DEFAULT (now() + INTERVAL '100 years'), type VARCHAR DEFAULT 'event_match', invite_code VARCHAR UNIQUE,
@@ -100,6 +100,13 @@ func TestTempCrewPostgresIntegration(t *testing.T) {
  title TEXT NOT NULL, body TEXT NOT NULL, data JSONB NOT NULL DEFAULT '{}', dedupe_key TEXT, scheduled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), read_at TIMESTAMPTZ)`,
 		`CREATE UNIQUE INDEX notifications_user_dedupe_uidx ON notifications(user_id, dedupe_key) WHERE dedupe_key IS NOT NULL`,
 	} {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Slug de eventos (trigger + backfill), igual que en producción.
+	for _, statement := range eventSlugSchema() {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)
 		}
